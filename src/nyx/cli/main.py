@@ -20,6 +20,7 @@ from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 
 from nyx.config import Settings
+from nyx.critics import register_storage_backed
 from nyx.critics.registry import CriticRegistryError, list_critics
 from nyx.domain.enums import FindingStatus, Severity
 from nyx.domain.ids import new_request_id
@@ -126,7 +127,11 @@ def _service() -> IngestionService:
 def _finding_service() -> FindingService:
     settings = Settings()
     engine = create_engine_from_settings(settings)
-    return FindingService(create_session_factory(engine))
+    factory = create_session_factory(engine)
+    # Keep the CLI's critic set identical to the API's: C-010 audits NYX's own store, so it
+    # must be handed the same session factory the CLI just built.
+    register_storage_backed(factory)
+    return FindingService(factory)
 
 
 def _print_record(record: Any, json_output: bool, human: str) -> None:
