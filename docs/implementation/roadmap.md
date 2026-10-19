@@ -10,8 +10,8 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 
 | Phase | Name | Status | Acceptance scenarios that gate it |
 | --- | --- | --- | --- |
-| 0 | Repository discovery and decisions | in progress | None numbered; documents, schemas, examples, and ADRs reviewed |
-| 1 | Evidence and event spine | not started | 1, 2, 3, 14, 18 |
+| 0 | Repository discovery and decisions | done | None numbered; documents, schemas, examples, and ADRs reviewed |
+| 1 | Evidence and event spine | in progress (1a done; 1b not started) | 1, 2, 3, 14, 18 |
 | 2 | Deterministic critic engine | not started | 4, 5, 6, 7, 8, 9, 12, 24 |
 | 3 | Disputes and verification | not started | 10, 11, 22, 23 |
 | 4 | Security and operational hardening | not started | 13, 14, 15, 16, 17, 18, 19, 20 |
@@ -25,7 +25,7 @@ gated in Phase 4 for safe failure handling and re-validated in Phase 6 with an a
 
 ## Phase 0 — Repository discovery and decisions
 
-**Status:** in progress.
+**Status:** done.
 
 **Deliverable:** a reviewed implementation plan with mapped files and tests.
 
@@ -39,7 +39,7 @@ gated in Phase 4 for safe failure handling and re-validated in Phase 6 with an a
 - [x] Define data classification, redaction, and retention policy.
 - [x] Record key decisions in ADRs 0001–0006.
 - [x] Map acceptance scenarios and the 17-step task order to expected test and source files.
-- [ ] Review the Phase 0 documents and schemas with the project owner.
+- [x] Review the Phase 0 documents and schemas with the project owner.
 - [ ] Complete the dependency/license/maturity review in SPEC §12 before adding any integration
       dependency. Installed versions and licenses are recorded in `current-state.md`; no independent
       security or maturity audit has been performed.
@@ -55,7 +55,8 @@ documents, schemas, and examples.
 
 ## Phase 1 — Evidence and event spine
 
-**Status:** not started.
+**Status:** in progress. Phase 1a (domain model, storage spine, system registry) is complete; Phase
+1b (HTTP API, CLI ingestion, redaction pipeline, idempotency) is not started.
 
 **Deliverable:** a working local service that can register a system, ingest and retrieve a normalized
 event, claim, and evidence reference, persist them through migrations, and trace each record to its
@@ -76,6 +77,28 @@ source.
 **Exit criteria (SPEC §19):** acceptance scenarios 1–3, 14, and 18 pass.
 
 **Acceptance scenarios:** 1, 2, 3, 14, 18.
+
+### Phase 1a — Domain model, storage spine, system registry (complete)
+
+**Status:** done (19 October 2026).
+
+Delivered and verified by `uv run pytest`:
+
+- [x] Pydantic v2 domain models for `MonitoredSystem`, `Event`, `Claim`, `EvidenceItem`, and
+      `AuditEntry`, with shared enums, UTC-only timestamps, stable prefixed IDs, and canonical JSON.
+- [x] Secret-ish `metadata` keys rejected at the domain boundary; unscoped claims rejected.
+- [x] SQLAlchemy 2.x tables, indexes, repositories, engine/session factory, and `session_scope`.
+- [x] Alembic environment and a real initial migration; `uv run alembic upgrade head` succeeds.
+- [x] Settings with loopback/SQLite safe defaults, secret-safe effective configuration, `.env.example`.
+- [x] Append-only audit writer with a documented local hash chain.
+- [x] Idempotent system registry with audit entries.
+- [x] Tests: canonicalisation (including a Hypothesis key-shuffle property), domain validation,
+      system registry, migrations, and configuration redaction.
+- [x] Minimal `nyx doctor`; `uv run nyx doctor` passes against a migrated local database.
+
+Not delivered in 1a: HTTP API, CLI ingestion commands, redaction of incoming payloads, event/claim/
+evidence ingestion workflow, idempotency keys, schema/model agreement test, and fixtures. These are
+Phase 1b or later work.
 
 **Explicit non-goals for this phase:** critics beyond a stub registry, findings, disputes, and any
 external adapter.

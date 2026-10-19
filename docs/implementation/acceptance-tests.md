@@ -8,6 +8,11 @@ locally, and passes against the implementation.
 marked “re-validated” must still pass in the later phase, but the earlier phase owns the first passing
 test.
 
+**Phase 1a note (19 October 2026):** the domain-model, storage, audit-writer, and system-registry work
+does not complete any numbered scenario below. In particular, secret-ish `metadata` key rejection is
+a domain guard, not the payload-redaction behaviour required by scenario 14, and the audit hash chain
+has no scenario-17 verification test yet. All boxes remain unchecked.
+
 | # | Acceptance scenario | Phase | Owning test file | Status |
 | --- | --- | --- | --- | --- |
 | 1 | An event can be ingested, retrieved, and traced to its source system. | 1 | `tests/integration/test_ingestion_api.py` | [ ] |

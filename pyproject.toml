@@ -50,6 +50,10 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "UP", "B", "S", "C4", "SIM"]
 ignore = ["S101"]
 
+[tool.ruff.format]
+# Design documents may contain illustrative Python snippets that are not source files.
+exclude = ["*.md"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

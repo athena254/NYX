@@ -79,8 +79,16 @@
     },
     "scope": {
       "type": "object",
+      "description": "A system id alone is not a scoped claim; at least one narrowing field is required.",
       "additionalProperties": false,
       "required": ["system_id"],
+      "anyOf": [
+        { "required": ["artifact"] },
+        { "required": ["commit"] },
+        { "required": ["environment"] },
+        { "required": ["period"] },
+        { "required": ["conditions"] }
+      ],
       "properties": {
         "system_id": { "$ref": "#/$defs/identifier" },
         "artifact": {
