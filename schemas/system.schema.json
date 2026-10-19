@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyx.local/schemas/system.schema.json",
+  "title": "MonitoredSystem",
+  "description": "A registered monitored system. Hand-written from docs/SPEC.md 5.1. Phase 1 MUST add a test proving the Pydantic models and this schema agree; until that test passes, this file is a Phase 0 contract, not a verified artifact. Credentials and secrets MUST NOT be stored in metadata.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "name",
+    "kind",
+    "environment",
+    "owner",
+    "capabilities",
+    "adapter",
+    "metadata",
+    "created_at",
+    "status"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/identifier" },
+    "schema_version": { "$ref": "#/$defs/schema_version" },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["agent", "service", "repository", "pipeline", "model", "human"]
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["development", "staging", "production", "local"]
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$"
+      }
+    },
+    "adapter": {
+      "type": "string",
+      "enum": ["http", "cli", "file", "opentelemetry", "custom"]
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Non-sensitive descriptive metadata. Credentials, tokens, private keys, and raw secrets are forbidden here.",
+      "maxProperties": 64,
+      "propertyNames": { "pattern": "^[A-Za-z0-9._-]{1,64}$" }
+    },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "status": {
+      "type": "string",
+      "enum": ["active", "paused", "retired"]
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

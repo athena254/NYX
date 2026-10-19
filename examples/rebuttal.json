@@ -1,0 +1,12 @@
+{
+  "id": "reb_ghost_001",
+  "schema_version": "1.0",
+  "finding_id": "nyx-find-ghost-0001",
+  "submitted_by": "sys_ghost_factory_demo",
+  "submitted_at": "2026-10-19T11:00:00Z",
+  "argument": "The finding compares the completion claim to CI run 9821, which targets commit def456. We attach ev_ghost_002, a required integration test report for commit abc123, and request that the finding be withdrawn.",
+  "evidence_ids": [
+    "ev_ghost_002"
+  ],
+  "requested_outcome": "withdrawn"
+}

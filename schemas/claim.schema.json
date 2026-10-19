@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyx.local/schemas/claim.schema.json",
+  "title": "Claim",
+  "description": "A proposition that can be assessed. Hand-written from docs/SPEC.md 5.3. Phase 1 MUST add a test proving the Pydantic models and this schema agree; until that test passes, this file is a Phase 0 contract, not a verified artifact. Claims must be scoped: 'all tests pass' is incomplete without the commit, test suite, environment, and run identity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "statement",
+    "claimant_system_id",
+    "claim_type",
+    "scope",
+    "created_at",
+    "source_event_ids",
+    "status"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/identifier" },
+    "schema_version": { "$ref": "#/$defs/schema_version" },
+    "statement": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "claimant_system_id": { "$ref": "#/$defs/identifier" },
+    "claimant_principal_id": { "$ref": "#/$defs/identifier" },
+    "claim_type": {
+      "type": "string",
+      "enum": [
+        "factual",
+        "causal",
+        "predictive",
+        "policy",
+        "completion",
+        "security",
+        "quality",
+        "other"
+      ]
+    },
+    "scope": { "$ref": "#/$defs/scope" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "source_event_ids": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "unassessed",
+        "supported",
+        "challenged",
+        "disputed",
+        "verified_within_scope",
+        "refuted",
+        "inconclusive"
+      ]
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system_id"],
+      "properties": {
+        "system_id": { "$ref": "#/$defs/identifier" },
+        "artifact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "period": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from"],
+          "properties": {
+            "from": { "$ref": "#/$defs/timestamp" },
+            "to": { "$ref": "#/$defs/timestamp" }
+          }
+        },
+        "conditions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,389 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyx.local/schemas/finding.schema.json",
+  "title": "Finding",
+  "description": "A composed finding with explicit evidence links and separated observation, inference, recommendation, and unknowns. Hand-written from docs/SPEC.md 5.5, 5.6, and 6. Phase 1 MUST add a test proving the Pydantic models and this schema agree; until that test passes, this file is a Phase 0 contract, not a verified artifact. recommended_action.is_recommendation is constrained to true to enforce that NYX never acts in the MVP.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "title",
+    "summary",
+    "category",
+    "severity",
+    "scope",
+    "affected_system_ids",
+    "claim_ids",
+    "event_ids",
+    "evidence_ids",
+    "supporting_evidence_ids",
+    "counterevidence_ids",
+    "reasoning",
+    "limitations",
+    "unknowns",
+    "recommended_action",
+    "critic_runs",
+    "status",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/identifier" },
+    "schema_version": { "$ref": "#/$defs/schema_version" },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "contradiction",
+        "unsupported_claim",
+        "policy_violation",
+        "security_risk",
+        "quality_risk",
+        "drift",
+        "missing_verification",
+        "provenance_gap",
+        "other"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "low", "medium", "high", "critical"]
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "method"],
+      "properties": {
+        "value": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "scope": { "$ref": "#/$defs/scope" },
+    "affected_system_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "claim_ids": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "event_ids": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "evidence_ids": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "supporting_evidence_ids": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "counterevidence_ids": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "reasoning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observations", "inferences"],
+      "properties": {
+        "observations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "inferences": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "premises": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "contradiction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "reproduction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "recommended_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "is_recommendation"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "is_recommendation": { "const": true },
+        "requires_authorization": { "type": "boolean" },
+        "authority": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "critic_runs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/critic_run" }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "detected",
+        "evidence_pending",
+        "challenged",
+        "rebuttal_pending",
+        "verification_pending",
+        "confirmed",
+        "partially_confirmed",
+        "rejected",
+        "inconclusive",
+        "remediation_pending",
+        "fixed_pending_verification",
+        "closed",
+        "accepted_risk",
+        "duplicate",
+        "withdrawn",
+        "expired"
+      ]
+    },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "updated_at": { "$ref": "#/$defs/timestamp" },
+    "duplicate_of": { "$ref": "#/$defs/identifier" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system_id"],
+      "properties": {
+        "system_id": { "$ref": "#/$defs/identifier" },
+        "artifact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "period": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from"],
+          "properties": {
+            "from": { "$ref": "#/$defs/timestamp" },
+            "to": { "$ref": "#/$defs/timestamp" }
+          }
+        },
+        "conditions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      }
+    },
+    "critic_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "critic_id",
+        "critic_type",
+        "critic_version",
+        "input_refs",
+        "started_at",
+        "completed_at",
+        "result",
+        "rationale"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "critic_id": { "$ref": "#/$defs/identifier" },
+        "critic_type": {
+          "type": "string",
+          "enum": ["deterministic", "tool", "llm", "human"]
+        },
+        "critic_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "rule_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "model_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "input_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "input_hashes": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/digest" }
+        },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "completed_at": { "$ref": "#/$defs/timestamp" },
+        "result": {
+          "type": "string",
+          "enum": ["finding", "no_finding", "error", "skipped", "inconclusive"]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "tool_run_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "resource_usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wall_time_ms": { "type": "number", "minimum": 0 },
+            "cpu_ms": { "type": "number", "minimum": 0 },
+            "cost_units": { "type": "number", "minimum": 0 }
+          }
+        },
+        "failure_details": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Must be redacted; never a raw secret or restricted payload."
+        }
+      }
+    }
+  }
+}

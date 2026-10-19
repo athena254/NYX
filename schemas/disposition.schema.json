@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyx.local/schemas/disposition.schema.json",
+  "title": "Disposition",
+  "description": "A disposition of a finding. Hand-written from docs/SPEC.md 5.7. Phase 1 MUST add a test proving the Pydantic models and this schema agree; until that test passes, this file is a Phase 0 contract, not a verified artifact. Every new disposition supersedes but never deletes its predecessor; supersedes_disposition_id is null only for the first disposition.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "finding_id",
+    "outcome",
+    "rationale",
+    "decided_by",
+    "decided_at",
+    "verification_run_ids",
+    "policy_version",
+    "supersedes_disposition_id"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/identifier" },
+    "schema_version": { "$ref": "#/$defs/schema_version" },
+    "finding_id": { "$ref": "#/$defs/identifier" },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "confirmed",
+        "partially_confirmed",
+        "rejected",
+        "inconclusive",
+        "accepted_risk",
+        "duplicate",
+        "withdrawn"
+      ]
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "decided_by": { "$ref": "#/$defs/identifier" },
+    "decided_at": { "$ref": "#/$defs/timestamp" },
+    "verification_run_ids": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "supersedes_disposition_id": {
+      "oneOf": [
+        { "$ref": "#/$defs/identifier" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

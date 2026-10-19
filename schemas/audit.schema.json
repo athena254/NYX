@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyx.local/schemas/audit.schema.json",
+  "title": "AuditEntry",
+  "description": "An append-only audit entry for a security-relevant or lifecycle event. Hand-written from docs/SPEC.md 5.8. Phase 1 MUST add a test proving the Pydantic models and this schema agree; until that test passes, this file is a Phase 0 contract, not a verified artifact. entry_hash records an integrity identifier and prior_entry_hash links the previous entry; a local hash chain detects some mutations but is NOT tamper-proof against a privileged actor who can rewrite the whole store.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "sequence",
+    "actor",
+    "action",
+    "target",
+    "timestamp",
+    "request_id",
+    "outcome",
+    "reason",
+    "entry_hash"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/identifier" },
+    "schema_version": { "$ref": "#/$defs/schema_version" },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "actor": { "$ref": "#/$defs/principal_ref" },
+    "action": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9][a-z0-9_-]*)+$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "id": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "timestamp": { "$ref": "#/$defs/timestamp" },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["success", "failure", "denied", "error"]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "prior_entry_hash": {
+      "oneOf": [
+        { "$ref": "#/$defs/digest" },
+        { "type": "null" }
+      ]
+    },
+    "entry_hash": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "principal_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "system",
+            "principal",
+            "agent",
+            "tool",
+            "human",
+            "service",
+            "artifact",
+            "unknown"
+          ]
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    }
+  }
+}

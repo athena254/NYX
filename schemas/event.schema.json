@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyx.local/schemas/event.schema.json",
+  "title": "Event",
+  "description": "A normalized observation, which is not necessarily a verified fact. Hand-written from docs/SPEC.md 5.2. Phase 1 MUST add a test proving the Pydantic models and this schema agree; until that test passes, this file is a Phase 0 contract, not a verified artifact. occurred_at is the producer's claim and is not trusted merely because it is present; received_at is preserved separately.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "source_system_id",
+    "event_type",
+    "occurred_at",
+    "received_at",
+    "correlation_id",
+    "payload",
+    "content_hash",
+    "trust_class",
+    "labels",
+    "retention_class"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/identifier" },
+    "schema_version": { "$ref": "#/$defs/schema_version" },
+    "source_system_id": { "$ref": "#/$defs/identifier" },
+    "event_type": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9][a-z0-9_-]*)+$"
+    },
+    "occurred_at": { "$ref": "#/$defs/timestamp" },
+    "received_at": { "$ref": "#/$defs/timestamp" },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "parent_event_id": { "$ref": "#/$defs/identifier" },
+    "actor": { "$ref": "#/$defs/principal_ref" },
+    "subject": { "$ref": "#/$defs/principal_ref" },
+    "payload": {
+      "type": "object",
+      "description": "Typed, redacted data. Must not contain raw secrets or restricted payloads.",
+      "maxProperties": 128
+    },
+    "source_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "content_hash": { "$ref": "#/$defs/digest" },
+    "trust_class": {
+      "type": "string",
+      "enum": ["unverified", "observed", "tool_verified", "signed_attestation"]
+    },
+    "labels": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "retention_class": { "$ref": "#/$defs/retention_class" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "retention_class": {
+      "type": "string",
+      "enum": ["ephemeral", "standard", "extended", "legal_hold", "derived_metadata"]
+    },
+    "principal_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "system",
+            "principal",
+            "agent",
+            "tool",
+            "human",
+            "service",
+            "artifact",
+            "unknown"
+          ]
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    }
+  }
+}

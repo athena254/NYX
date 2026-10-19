@@ -1,0 +1,25 @@
+{
+  "id": "claim_ghost_0001",
+  "schema_version": "1.0",
+  "statement": "All required tests pass for commit abc123.",
+  "claimant_system_id": "sys_ghost_factory_demo",
+  "claim_type": "completion",
+  "scope": {
+    "system_id": "sys_ghost_factory_demo",
+    "artifact": "ghost-factory-demo",
+    "commit": "abc123",
+    "environment": "staging",
+    "period": {
+      "from": "2026-10-19T10:00:00Z"
+    },
+    "conditions": [
+      "required integration suite",
+      "same build artifact as the claimed commit"
+    ]
+  },
+  "created_at": "2026-10-19T10:00:02Z",
+  "source_event_ids": [
+    "evt_ghost_0001"
+  ],
+  "status": "unassessed"
+}

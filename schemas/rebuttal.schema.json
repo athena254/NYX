@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyx.local/schemas/rebuttal.schema.json",
+  "title": "Rebuttal",
+  "description": "A response to a finding. Hand-written from docs/SPEC.md 5.7. Phase 1 MUST add a test proving the Pydantic models and this schema agree; until that test passes, this file is a Phase 0 contract, not a verified artifact. A rebuttal appends to history and never overwrites the original finding, its evidence, or a prior rebuttal.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "finding_id",
+    "submitted_by",
+    "submitted_at",
+    "argument",
+    "evidence_ids",
+    "requested_outcome"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/identifier" },
+    "schema_version": { "$ref": "#/$defs/schema_version" },
+    "finding_id": { "$ref": "#/$defs/identifier" },
+    "submitted_by": { "$ref": "#/$defs/identifier" },
+    "submitted_at": { "$ref": "#/$defs/timestamp" },
+    "argument": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "evidence_ids": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "requested_outcome": {
+      "type": "string",
+      "enum": [
+        "withdrawn",
+        "rejected",
+        "partially_confirmed",
+        "inconclusive",
+        "accepted_risk",
+        "no_change"
+      ]
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}
