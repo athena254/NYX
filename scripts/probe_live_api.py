@@ -95,21 +95,33 @@ with httpx.Client(timeout=20.0) as c:
 
     # 5. replay the same event -> idempotent
     r2 = c.post(f"{BASE}/events", json=event)
-    check("replay accepted or flagged duplicate", r2.status_code in (200, 201, 409),
-          f"status={r2.status_code} {r2.text[:160]}")
+    check(
+        "replay accepted or flagged duplicate",
+        r2.status_code in (200, 201, 409),
+        f"status={r2.status_code} {r2.text[:160]}",
+    )
     same_id = r2.json().get("id") if r2.status_code < 300 else None
-    check("replay does NOT create a new record", same_id in (None, ev_id),
-          f"first={ev_id} replay={same_id}")
+    check(
+        "replay does NOT create a new record",
+        same_id in (None, ev_id),
+        f"first={ev_id} replay={same_id}",
+    )
 
     # 6. different identity, identical content -> must be a NEW record
     event2 = dict(event)
     event2["producer_event_id"] = "probe-evt-2"
     r3 = c.post(f"{BASE}/events", json=event2)
-    check("distinct identity accepted", r3.status_code in (200, 201),
-          f"status={r3.status_code} {r3.text[:160]}")
+    check(
+        "distinct identity accepted",
+        r3.status_code in (200, 201),
+        f"status={r3.status_code} {r3.text[:160]}",
+    )
     new_id = r3.json().get("id")
-    check("identical content + new identity => new record (no content-similarity merge)",
-          new_id is not None and new_id != ev_id, f"{ev_id} vs {new_id}")
+    check(
+        "identical content + new identity => new record (no content-similarity merge)",
+        new_id is not None and new_id != ev_id,
+        f"{ev_id} vs {new_id}",
+    )
 
     # 7. invalid payload -> structured error, no partial write
     bad = {"source_system_id": sys_id, "event_type": "x"}  # missing required fields

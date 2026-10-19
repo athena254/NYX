@@ -20,8 +20,11 @@ from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 
 from nyx.config import Settings
+from nyx.critics.registry import CriticRegistryError, list_critics
+from nyx.domain.enums import FindingStatus, Severity
 from nyx.domain.ids import new_request_id
 from nyx.error_codes import ErrorCode
+from nyx.findings.service import FindingQuery, FindingService
 from nyx.ingestion.errors import IngestResult, StructuredError
 from nyx.ingestion.limits import LimitExceededError
 from nyx.ingestion.service import IngestionService
@@ -42,11 +45,15 @@ system_app = typer.Typer(help="Register and list monitored systems.", no_args_is
 ingest_app = typer.Typer(help="Ingest events.", no_args_is_help=True)
 claim_app = typer.Typer(help="Register claims.", no_args_is_help=True)
 evidence_app = typer.Typer(help="Register evidence items.", no_args_is_help=True)
+critic_app = typer.Typer(help="List and run the deterministic critics.", no_args_is_help=True)
+finding_app = typer.Typer(help="List and inspect findings.", no_args_is_help=True)
 
 app.add_typer(system_app, name="system")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(claim_app, name="claim")
 app.add_typer(evidence_app, name="evidence")
+app.add_typer(critic_app, name="critic")
+app.add_typer(finding_app, name="finding")
 
 
 @app.callback()
@@ -114,6 +121,12 @@ def _service() -> IngestionService:
     settings = Settings()
     engine = create_engine_from_settings(settings)
     return IngestionService(create_session_factory(engine), settings)
+
+
+def _finding_service() -> FindingService:
+    settings = Settings()
+    engine = create_engine_from_settings(settings)
+    return FindingService(create_session_factory(engine))
 
 
 def _print_record(record: Any, json_output: bool, human: str) -> None:
@@ -428,6 +441,148 @@ def _check_data_dir(data_dir: Path) -> bool:
     except OSError:
         return False
     return True
+
+
+# --------------------------------------------------------------------------- critic
+
+
+@critic_app.command("list")
+def critic_list(
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """List the registered deterministic critics and their declared scope."""
+
+    critics = list_critics()
+    if json_output:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "critic_id": item.critic_id,
+                        "critic_version": item.critic_version,
+                        "description": item.description,
+                        "can_assess": item.can_assess,
+                        "cannot_assess": item.cannot_assess,
+                    }
+                    for item in critics
+                ],
+                indent=2,
+            )
+        )
+        return
+    for item in critics:
+        typer.echo(f"{item.critic_id}  v{item.critic_version}  {item.description}")
+
+
+@critic_app.command("run")
+def critic_run(
+    event: str = typer.Option(..., "--event", help="Stable id of the event to assess."),
+    critic: list[str] | None = typer.Option(
+        None, "--critic", help="Critic id to run; repeat for several. Omit for the whole pack."
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Run the selected critics against one event.
+
+    A ``no_finding`` result means only that a critic found nothing within its declared scope.
+    It is never a statement that the claim is true.
+    """
+
+    try:
+        outcomes = _finding_service().run_critics(event, list(critic) if critic else None)
+    except CriticRegistryError as exc:
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.INVALID_REQUEST.value,
+                message=str(exc),
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "critic_id": item.critic_id,
+                        "critic_version": item.critic_version,
+                        "result": item.result.value,
+                        "proposition": item.proposition,
+                        "rationale": item.rationale,
+                        "finding_id": item.finding_id,
+                    }
+                    for item in outcomes
+                ],
+                indent=2,
+            )
+        )
+        return
+    for item in outcomes:
+        line = f"{item.critic_id}: {item.result.value}"
+        if item.finding_id:
+            line += f"  finding={item.finding_id}"
+        typer.echo(line)
+
+
+# --------------------------------------------------------------------------- finding
+
+
+@finding_app.command("list")
+def finding_list(
+    status: FindingStatus | None = typer.Option(None, "--status", help="Filter by status."),
+    severity: Severity | None = typer.Option(None, "--severity", help="Filter by severity."),
+    limit: int = typer.Option(50, "--limit", min=1, max=200),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """List findings in creation order."""
+
+    page = _finding_service().list_findings(
+        FindingQuery(status=status, severity=severity, limit=limit)
+    )
+    if json_output:
+        typer.echo(json.dumps(page.model_dump(mode="json", by_alias=True), indent=2))
+        return
+    if not page.items:
+        typer.echo("no findings")
+        return
+    for finding in page.items:
+        typer.echo(
+            f"{finding.id}  {finding.severity.value:<8} {finding.status.value:<12} {finding.title}"
+        )
+
+
+@finding_app.command("show")
+def finding_show(
+    finding_id: str = typer.Argument(..., help="Stable id of the finding."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Show one finding, including its evidence links, limitations and unknowns."""
+
+    finding = _finding_service().get_finding(finding_id)
+    if finding is None:
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.NOT_FOUND.value,
+                message="Finding not found.",
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1)
+    if json_output:
+        typer.echo(json.dumps(finding.model_dump(mode="json", by_alias=True), indent=2))
+        return
+    typer.echo(f"{finding.id}  {finding.severity.value}  {finding.status.value}")
+    typer.echo(finding.title)
+    typer.echo("")
+    typer.echo(finding.summary)
+    if finding.limitations:
+        typer.echo("")
+        typer.echo("limitations:")
+        for item in finding.limitations:
+            typer.echo(f"  - {item}")
 
 
 if __name__ == "__main__":

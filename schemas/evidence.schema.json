@@ -82,6 +82,7 @@
       "minLength": 1,
       "maxLength": 512
     },
+    "scope": { "$ref": "#/$defs/scope" },
     "captured_at": { "$ref": "#/$defs/timestamp" },
     "valid_from": { "$ref": "#/$defs/timestamp" },
     "valid_until": { "$ref": "#/$defs/timestamp" },
@@ -169,6 +170,33 @@
     "retention_class": {
       "type": "string",
       "enum": ["ephemeral", "standard", "extended", "legal_hold", "derived_metadata"]
+    },
+    "scope": {
+      "type": "object",
+      "description": "Optional explicit scope for evidence that is only valid for a particular artifact, commit, environment, or period.",
+      "additionalProperties": false,
+      "required": ["system_id"],
+      "properties": {
+        "system_id": { "$ref": "#/$defs/identifier" },
+        "artifact": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "commit": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "environment": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "period": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from"],
+          "properties": {
+            "from": { "$ref": "#/$defs/timestamp" },
+            "to": { "$ref": "#/$defs/timestamp" }
+          }
+        },
+        "conditions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      }
     },
     "principal_ref": {
       "type": "object",

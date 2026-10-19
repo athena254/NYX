@@ -6,6 +6,7 @@ from fastapi import Request
 from sqlalchemy import Engine
 
 from nyx.config import Settings
+from nyx.findings.service import FindingService
 from nyx.ingestion.service import IngestionService
 
 
@@ -19,6 +20,12 @@ def get_service(request: Request) -> IngestionService:
     """Return the ingestion service bound to the running application."""
 
     return request.app.state.service  # type: ignore[no-any-return]
+
+
+def get_finding_service(request: Request) -> FindingService:
+    """Return the finding service bound to the running application."""
+
+    return request.app.state.finding_service  # type: ignore[no-any-return]
 
 
 def get_engine(request: Request) -> Engine:

@@ -52,6 +52,12 @@ select = ["E", "F", "I", "UP", "B", "S", "C4", "SIM"]
 # B008: FastAPI's documented dependency-injection idiom uses `Depends()` in argument defaults.
 ignore = ["S101", "B008"]
 
+[tool.ruff.lint.per-file-ignores]
+# Developer tooling under scripts/ deliberately spawns uv/alembic/uvicorn as subprocesses with
+# partial executable paths resolved from PATH. That is the point of these scripts, and they are
+# not part of the shipped service, so the subprocess-security rules do not apply to them.
+"scripts/*.py" = ["S603", "S607", "S110", "SIM105"]
+
 [tool.ruff.format]
 # Design documents may contain illustrative Python snippets that are not source files.
 exclude = ["*.md"]

@@ -2,6 +2,18 @@
 
 Cursors encode the ``(created_at, id)`` of the last item returned. IDs are time-sortable, so
 ordering by that tuple is stable across inserts; a new record cannot shift an existing page.
+
+This lives under ``domain`` rather than ``api`` deliberately. It is a pure, dependency-free
+utility, and it is used by the *service* layer (``nyx.findings.service``) as well as by the
+HTTP routes. When it lived in ``nyx.api``, importing it from a service pulled in
+``nyx.api.__init__``, which eagerly imports the whole FastAPI application — so the CLI, which
+imports the finding service, died on a circular import:
+
+    cli.main -> findings.service -> api.pagination -> api.__init__ -> api.app
+             -> api.routes.claims -> api.deps -> findings.service (partially initialised)
+
+A domain service must not depend on the transport layer. Keeping the helper here removes the
+cycle at its cause instead of relying on import ordering.
 """
 
 from __future__ import annotations

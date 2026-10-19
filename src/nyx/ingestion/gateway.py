@@ -531,6 +531,7 @@ class IngestionGateway:
                 source_name=evidence_input.source_name,
                 source_ref=evidence_input.source_ref,
                 locator=evidence_input.locator,
+                scope=evidence_input.scope,
                 captured_at=evidence_input.captured_at,
                 valid_from=evidence_input.valid_from,
                 valid_until=evidence_input.valid_until,

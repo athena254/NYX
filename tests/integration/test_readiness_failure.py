@@ -57,8 +57,13 @@ def test_migrations_behind_head_is_not_ready(
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith("NYX_")}
     env["NYX_DATABASE_URL"] = f"sqlite:///{database.as_posix()}"
     env["NYX_DATA_DIR"] = str(tmp_path)
+    # Downgrade to base, not -1: since the Phase 2a migration added the findings/critic_runs
+    # tables and the evidence_items.scope column, a -1 downgrade still leaves the events and
+    # idempotency tables in place, so event ingestion would legitimately succeed. The property
+    # under test is that a database behind head is not ready and ingestion fails safely, which
+    # requires a downgrade that actually removes the tables the write path needs.
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "downgrade", "-1"],
+        [sys.executable, "-m", "alembic", "downgrade", "base"],
         cwd=REPOSITORY_ROOT,
         env=env,
         capture_output=True,

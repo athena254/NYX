@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 
 from nyx.api.deps import get_service
 from nyx.api.errors import ApiError, api_error_from, request_id_for
-from nyx.api.pagination import InvalidCursorError, clamp_limit, decode_cursor, encode_cursor
 from nyx.api.schemas import SystemPage
 from nyx.domain.enums import SystemStatus
+from nyx.domain.pagination import InvalidCursorError, clamp_limit, decode_cursor, encode_cursor
 from nyx.domain.systems import MonitoredSystem
 from nyx.error_codes import ErrorCode
 from nyx.ingestion.inputs import SystemManifestInput

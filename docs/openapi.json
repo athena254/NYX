@@ -300,6 +300,366 @@
         "title": "ClaimType",
         "type": "string"
       },
+      "Confidence": {
+        "additionalProperties": false,
+        "description": "An optional assessment aid with an explicit method; never a substitute for evidence.",
+        "properties": {
+          "method": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Method",
+            "type": "string"
+          },
+          "value": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value",
+          "method"
+        ],
+        "title": "Confidence",
+        "type": "object"
+      },
+      "CriticInfoModel": {
+        "additionalProperties": false,
+        "description": "The public description of one registered critic.",
+        "properties": {
+          "can_assess": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Can Assess",
+            "type": "array"
+          },
+          "cannot_assess": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cannot Assess",
+            "type": "array"
+          },
+          "critic_id": {
+            "title": "Critic Id",
+            "type": "string"
+          },
+          "critic_version": {
+            "title": "Critic Version",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "critic_id",
+          "critic_version",
+          "description",
+          "can_assess",
+          "cannot_assess"
+        ],
+        "title": "CriticInfoModel",
+        "type": "object"
+      },
+      "CriticListResponse": {
+        "additionalProperties": false,
+        "description": "Every registered critic, with its declared scope.",
+        "properties": {
+          "critics": {
+            "items": {
+              "$ref": "#/components/schemas/CriticInfoModel"
+            },
+            "title": "Critics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "critics"
+        ],
+        "title": "CriticListResponse",
+        "type": "object"
+      },
+      "CriticResultStatus": {
+        "enum": [
+          "finding",
+          "no_finding",
+          "error",
+          "skipped",
+          "inconclusive"
+        ],
+        "title": "CriticResultStatus",
+        "type": "string"
+      },
+      "CriticRun": {
+        "additionalProperties": false,
+        "description": "A persisted critic execution. Matches the SPEC §5.6 field set.",
+        "properties": {
+          "completed_at": {
+            "title": "Completed At",
+            "type": "string"
+          },
+          "critic_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Critic Id",
+            "type": "string"
+          },
+          "critic_type": {
+            "$ref": "#/components/schemas/CriticType",
+            "default": "deterministic"
+          },
+          "critic_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Critic Version",
+            "type": "string"
+          },
+          "failure_details": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Details"
+          },
+          "finding_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Id"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_hashes": {
+            "items": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Input Hashes",
+            "type": "array"
+          },
+          "input_refs": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "title": "Input Refs",
+            "type": "array"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "rationale": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "resource_usage": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Usage"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CriticResultStatus"
+          },
+          "rule_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Version"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "tool_run_refs": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Tool Run Refs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "critic_id",
+          "critic_version",
+          "input_refs",
+          "started_at",
+          "completed_at",
+          "result",
+          "rationale"
+        ],
+        "title": "CriticRun",
+        "type": "object"
+      },
+      "CriticRunRequest": {
+        "additionalProperties": false,
+        "description": "Body for ``POST /api/v1/critics/run``.",
+        "properties": {
+          "critic_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critic Ids"
+          },
+          "event_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Event Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id"
+        ],
+        "title": "CriticRunRequest",
+        "type": "object"
+      },
+      "CriticRunResponse": {
+        "additionalProperties": false,
+        "description": "The outcome of a critic run request.",
+        "properties": {
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/CriticRunResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results",
+          "request_id"
+        ],
+        "title": "CriticRunResponse",
+        "type": "object"
+      },
+      "CriticRunResult": {
+        "additionalProperties": false,
+        "description": "The persisted outcome of one critic run, as returned to the caller.",
+        "properties": {
+          "critic_id": {
+            "title": "Critic Id",
+            "type": "string"
+          },
+          "critic_version": {
+            "title": "Critic Version",
+            "type": "string"
+          },
+          "finding_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Id"
+          },
+          "proposition": {
+            "title": "Proposition",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CriticResultStatus"
+          }
+        },
+        "required": [
+          "critic_id",
+          "critic_version",
+          "result",
+          "proposition",
+          "rationale"
+        ],
+        "title": "CriticRunResult",
+        "type": "object"
+      },
+      "CriticType": {
+        "enum": [
+          "deterministic",
+          "tool",
+          "llm",
+          "human"
+        ],
+        "title": "CriticType",
+        "type": "string"
+      },
       "Environment": {
         "enum": [
           "development",
@@ -780,6 +1140,16 @@
             "title": "Schema Version",
             "type": "string"
           },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Scope-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "sensitivity": {
             "$ref": "#/components/schemas/Sensitivity"
           },
@@ -994,6 +1364,16 @@
             "pattern": "^[0-9]+\\.[0-9]+$",
             "title": "Schema Version",
             "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Scope-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "sensitivity": {
             "$ref": "#/components/schemas/Sensitivity"
@@ -1265,6 +1645,288 @@
         "title": "FieldDetail",
         "type": "object"
       },
+      "Finding": {
+        "additionalProperties": false,
+        "description": "A composed finding with explicit evidence links (SPEC §5.5).",
+        "properties": {
+          "affected_system_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Affected System Ids",
+            "type": "array"
+          },
+          "category": {
+            "$ref": "#/components/schemas/FindingCategory"
+          },
+          "claim_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Claim Ids",
+            "type": "array"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Confidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "counterevidence_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Counterevidence Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "critic_runs": {
+            "items": {
+              "$ref": "#/components/schemas/CriticRun"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Critic Runs",
+            "type": "array"
+          },
+          "dedupe_key": {
+            "anyOf": [
+              {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Key"
+          },
+          "dedupe_rationale": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Rationale"
+          },
+          "duplicate_of": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Of"
+          },
+          "event_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "evidence_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "title": "Limitations",
+            "type": "array"
+          },
+          "reasoning": {
+            "$ref": "#/components/schemas/Reasoning"
+          },
+          "recommended_action": {
+            "$ref": "#/components/schemas/RecommendedAction"
+          },
+          "schema_version": {
+            "default": "1.0",
+            "pattern": "^[0-9]+\\.[0-9]+$",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope-Output"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FindingStatus",
+            "default": "detected"
+          },
+          "summary": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "supporting_evidence_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Supporting Evidence Ids",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "unknowns": {
+            "items": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "title": "Unknowns",
+            "type": "array"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "summary",
+          "category",
+          "severity",
+          "scope",
+          "affected_system_ids",
+          "reasoning",
+          "recommended_action",
+          "critic_runs"
+        ],
+        "title": "Finding",
+        "type": "object"
+      },
+      "FindingCategory": {
+        "enum": [
+          "contradiction",
+          "unsupported_claim",
+          "policy_violation",
+          "security_risk",
+          "quality_risk",
+          "drift",
+          "missing_verification",
+          "provenance_gap",
+          "other"
+        ],
+        "title": "FindingCategory",
+        "type": "string"
+      },
+      "FindingPage": {
+        "additionalProperties": false,
+        "description": "One cursor page of findings.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "FindingPage",
+        "type": "object"
+      },
+      "FindingStatus": {
+        "enum": [
+          "detected",
+          "evidence_pending",
+          "challenged",
+          "rebuttal_pending",
+          "verification_pending",
+          "confirmed",
+          "partially_confirmed",
+          "rejected",
+          "inconclusive",
+          "remediation_pending",
+          "fixed_pending_verification",
+          "closed",
+          "accepted_risk",
+          "duplicate",
+          "withdrawn",
+          "expired"
+        ],
+        "title": "FindingStatus",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1517,6 +2179,115 @@
         "title": "ReadyResponse",
         "type": "object"
       },
+      "Reasoning": {
+        "additionalProperties": false,
+        "description": "Inspectable reasoning with explicit premises and inference.\n\n``observations`` are recorded facts or direct readings. ``inferences`` are NYX's\nconclusions drawn from those observations. They are stored separately on purpose.",
+        "properties": {
+          "contradiction": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contradiction"
+          },
+          "inferences": {
+            "items": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Inferences",
+            "type": "array"
+          },
+          "observations": {
+            "items": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Observations",
+            "type": "array"
+          },
+          "premises": {
+            "items": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Premises",
+            "type": "array"
+          },
+          "reproduction": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reproduction"
+          }
+        },
+        "required": [
+          "observations"
+        ],
+        "title": "Reasoning",
+        "type": "object"
+      },
+      "RecommendedAction": {
+        "additionalProperties": false,
+        "description": "A recommendation for an authorised human or policy gate.\n\n``is_recommendation`` is pinned to ``True``: the MVP never performs an external action, so\nNYX output can only ever be advice.",
+        "properties": {
+          "authority": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority"
+          },
+          "is_recommendation": {
+            "const": true,
+            "default": true,
+            "title": "Is Recommendation",
+            "type": "boolean"
+          },
+          "requires_authorization": {
+            "default": true,
+            "title": "Requires Authorization",
+            "type": "boolean"
+          },
+          "text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "RecommendedAction",
+        "type": "object"
+      },
       "RetentionClass": {
         "enum": [
           "ephemeral",
@@ -1690,6 +2461,17 @@
           "restricted"
         ],
         "title": "Sensitivity",
+        "type": "string"
+      },
+      "Severity": {
+        "enum": [
+          "info",
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "title": "Severity",
         "type": "string"
       },
       "StructuredError": {
@@ -1931,7 +2713,7 @@
     }
   },
   "info": {
-    "description": "Evidence-backed oversight service. Phase 1 exposes system registration, event/claim/evidence ingestion, and health/readiness. Findings are Phase 2.",
+    "description": "Evidence-backed oversight service. Exposes system registration, event/claim/evidence ingestion, deterministic critics, findings, and health/readiness.",
     "title": "NYX",
     "version": "0.1.0"
   },
@@ -2037,6 +2819,70 @@
         "summary": "Get Claim",
         "tags": [
           "claims"
+        ]
+      }
+    },
+    "/api/v1/critics": {
+      "get": {
+        "description": "List the registered deterministic critics and what each can and cannot assess.",
+        "operationId": "get_critics_api_v1_critics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CriticListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Critics",
+        "tags": [
+          "critics"
+        ]
+      }
+    },
+    "/api/v1/critics/run": {
+      "post": {
+        "description": "Run the selected critics against one event.\n\nOmitting ``critic_ids`` runs the whole registered pack. Unknown critic ids and unknown\nevent ids are rejected before any run is persisted.",
+        "operationId": "run_critics_api_v1_critics_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriticRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CriticRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Critics",
+        "tags": [
+          "critics"
         ]
       }
     },
@@ -2285,6 +3131,223 @@
         "summary": "Get Evidence",
         "tags": [
           "evidence"
+        ]
+      }
+    },
+    "/api/v1/findings": {
+      "get": {
+        "description": "List findings, filtered and cursor-paginated with deterministic ordering.",
+        "operationId": "list_findings_api_v1_findings_get",
+        "parameters": [
+          {
+            "description": "Filter by affected system id.",
+            "in": "query",
+            "name": "system_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by affected system id.",
+              "title": "System Id"
+            }
+          },
+          {
+            "description": "Filter by finding status.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/FindingStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by finding status.",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Filter by severity.",
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Severity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by severity.",
+              "title": "Severity"
+            }
+          },
+          {
+            "description": "Filter by category.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/FindingCategory"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by category.",
+              "title": "Category"
+            }
+          },
+          {
+            "description": "Only findings created at or after this UTC instant.",
+            "in": "query",
+            "name": "created_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only findings created at or after this UTC instant.",
+              "title": "Created After"
+            }
+          },
+          {
+            "description": "Only findings created at or before this UTC instant.",
+            "in": "query",
+            "name": "created_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only findings created at or before this UTC instant.",
+              "title": "Created Before"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Findings",
+        "tags": [
+          "findings"
+        ]
+      }
+    },
+    "/api/v1/findings/{finding_id}": {
+      "get": {
+        "description": "Retrieve one finding, including its evidence links and limitations.\n\nThe finding's own fields are returned; restricted evidence payloads are not inlined here\nmerely because the caller can read the finding (SPEC §9.2).",
+        "operationId": "get_finding_api_v1_findings__finding_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "finding_id",
+            "required": true,
+            "schema": {
+              "title": "Finding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Finding"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Finding",
+        "tags": [
+          "findings"
         ]
       }
     },

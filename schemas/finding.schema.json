@@ -234,6 +234,12 @@
     },
     "created_at": { "$ref": "#/$defs/timestamp" },
     "updated_at": { "$ref": "#/$defs/timestamp" },
+    "dedupe_key": { "$ref": "#/$defs/digest" },
+    "dedupe_rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
     "duplicate_of": { "$ref": "#/$defs/identifier" }
   },
   "$defs": {

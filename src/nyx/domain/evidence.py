@@ -16,6 +16,7 @@ from nyx.domain.base import (
     NyxModel,
     PrincipalRef,
     SchemaVersion,
+    Scope,
     UtcDatetime,
 )
 from nyx.domain.enums import (
@@ -54,6 +55,7 @@ class EvidenceItem(NyxModel):
     source_name: Annotated[str, StringConstraints(min_length=1, max_length=256)] | None = None
     source_ref: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
     locator: Annotated[str, StringConstraints(min_length=1, max_length=512)] | None = None
+    scope: Scope | None = None
     captured_at: UtcDatetime
     valid_from: UtcDatetime
     valid_until: UtcDatetime | None = None

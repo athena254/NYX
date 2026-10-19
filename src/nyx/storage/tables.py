@@ -95,6 +95,7 @@ class EvidenceRow(Base):
     source_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source_ref: Mapped[str] = mapped_column(String(2048), nullable=False)
     locator: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    scope: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -149,3 +150,62 @@ class AuditRow(Base):
     reason: Mapped[str] = mapped_column(String(2000), nullable=False)
     prior_entry_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
     entry_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
+class FindingRow(Base):
+    """A composed finding (SPEC §5.5). Observations, inferences, recommendations, and
+    unknowns are stored as separate JSON structures and never collapsed into one prose field.
+    """
+
+    __tablename__ = "findings"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str] = mapped_column(String(4000), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    confidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    scope: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    scope_system_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    affected_system_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    claim_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    event_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    evidence_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    supporting_evidence_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    counterevidence_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    reasoning: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    limitations: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    unknowns: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    recommended_action: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    dedupe_rationale: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    duplicate_of: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CriticRunRow(Base):
+    """One critic execution (SPEC §5.6). ``finding_id`` links a run to its composed finding."""
+
+    __tablename__ = "critic_runs"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    critic_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    critic_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    critic_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    rule_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    input_refs: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    input_hashes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    result: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    rationale: Mapped[str] = mapped_column(String(2000), nullable=False)
+    tool_run_refs: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    resource_usage: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    failure_details: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    finding_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)

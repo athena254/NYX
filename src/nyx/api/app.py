@@ -5,11 +5,13 @@ from __future__ import annotations
 from fastapi import FastAPI
 from sqlalchemy import Engine
 
+import nyx.critics  # noqa: F401 - registers the deterministic critic pack
 from nyx import __version__
 from nyx.api.errors import register_exception_handlers
 from nyx.api.middleware import RequestIdMiddleware
-from nyx.api.routes import claims, events, evidence, health, systems
+from nyx.api.routes import claims, critics, events, evidence, findings, health, systems
 from nyx.config import Settings
+from nyx.findings.service import FindingService
 from nyx.ingestion.service import IngestionService
 from nyx.observability.logging import configure_logging
 from nyx.storage.db import (
@@ -46,8 +48,9 @@ def create_app(
         title="NYX",
         version=__version__,
         description=(
-            "Evidence-backed oversight service. Phase 1 exposes system registration, "
-            "event/claim/evidence ingestion, and health/readiness. Findings are Phase 2."
+            "Evidence-backed oversight service. Exposes system registration, "
+            "event/claim/evidence ingestion, deterministic critics, findings, and "
+            "health/readiness."
         ),
         docs_url="/docs",
         redoc_url=None,
@@ -57,6 +60,7 @@ def create_app(
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.service = IngestionService(session_factory, effective)
+    app.state.finding_service = FindingService(session_factory)
 
     app.add_middleware(RequestIdMiddleware)
     register_exception_handlers(app)
@@ -65,6 +69,8 @@ def create_app(
     app.include_router(events.router, prefix=_API_V1)
     app.include_router(claims.router, prefix=_API_V1)
     app.include_router(evidence.router, prefix=_API_V1)
+    app.include_router(findings.router, prefix=_API_V1)
+    app.include_router(critics.router, prefix=_API_V1)
     app.include_router(health.router, prefix=_API_V1)
 
     return app

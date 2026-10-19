@@ -188,10 +188,30 @@ def _shannon_entropy(value: str) -> float:
     return -sum((count / length) * math.log2(count / length) for count in counts.values())
 
 
+def _looks_like_url_or_path(value: str) -> bool:
+    """Return whether ``value`` is a URL or URL path rather than an opaque blob.
+
+    The high-entropy heuristic exists to catch *unlabelled opaque* values: base64 keys, hex
+    tokens, and the like. Its character class deliberately includes ``/`` so base64 is
+    matched -- which also makes a plain URL path match, because a path such as
+    ``/api/v1/events/evt_01M5B1...`` is long, alphanumeric and slash-separated.
+
+    Flagging that is a net loss: it destroys request tracing in the access log, and an audit
+    service that cannot say which resource was requested has lost more than it gained. A path
+    is neither opaque nor secret by nature. Secrets that genuinely appear in a URL are still
+    caught by the *named* rules -- bearer token, API key, JWT, URL credentials -- which run
+    before this heuristic.
+    """
+
+    return value.startswith("/") or "://" in value
+
+
 def _looks_high_entropy(value: str, *, key_hint: str | None) -> bool:
     if len(value) < 32:
         return False
     if value.startswith("sha256:") or value.startswith(PLACEHOLDER_PREFIX):
+        return False
+    if _looks_like_url_or_path(value):
         return False
     if key_hint is not None and _is_identifier_key(key_hint):
         return False

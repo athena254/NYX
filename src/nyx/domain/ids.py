@@ -30,6 +30,7 @@ IdPrefix = Literal[
     "clm_",
     "ev_",
     "fnd_",
+    "crn_",
     "rbt_",
     "dsp_",
     "aud_",
@@ -102,6 +103,10 @@ def new_evidence_id() -> str:
 
 def new_finding_id() -> str:
     return new_id("fnd_")
+
+
+def new_critic_run_id() -> str:
+    return new_id("crn_")
 
 
 def new_rebuttal_id() -> str:
