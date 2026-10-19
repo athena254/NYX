@@ -38,8 +38,8 @@ CRITIC_VERSION = "1.0.0"
 
 _VERIFICATION_KINDS = {EvidenceKind.TEST_RESULT, EvidenceKind.CI_TEST_RESULT}
 
-_SUCCESS_MARKER = re.compile(r"\bpass(?:ed|ing)?\b|\bgreen\b")
-_FAILURE_MARKER = re.compile(r"\bfail(?:ed|ing|ure)?\b|\bbroken\b|\bred\b")
+_SUCCESS_MARKER = re.compile(r"\bpass(?:es|ed|ing)?\b|\bgreen\b")
+_FAILURE_MARKER = re.compile(r"\bfail(?:s|ed|ing|ure)?\b|\bbroken\b|\bred\b")
 
 
 def _recorded_outcome(evidence: EvidenceItem) -> str | None:

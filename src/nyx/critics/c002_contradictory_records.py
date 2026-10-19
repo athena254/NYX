@@ -25,11 +25,11 @@ CRITIC_ID = "c002-contradictory-records"
 CRITIC_VERSION = "1.0.0"
 
 _SUCCESS_MARKER = re.compile(
-    r"\bpass(?:ed|ing)?\b|\bdone\b|\bfixed\b|\bdeployed\b|\bgreen\b|\bcomplete(?:d)?\b"
+    r"\bpass(?:es|ed|ing)?\b|\bdone\b|\bfixed\b|\bdeployed\b|\bgreen\b|\bcomplete(?:d)?\b"
     r"|\bsuccess(?:ful)?\b"
 )
 _FAILURE_MARKER = re.compile(
-    r"\bfail(?:ed|ing|ure)?\b|\bbroken\b|\bred\b|\bnot done\b|\bnot passing\b"
+    r"\bfail(?:s|ed|ing|ure)?\b|\bbroken\b|\bred\b|\bnot done\b|\bnot passing\b"
     r"|\bincomplete\b|\berror(?:s|ed)?\b|\bunstable\b"
 )
 
