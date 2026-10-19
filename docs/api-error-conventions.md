@@ -134,6 +134,7 @@ request unless the endpoint documents transactional batching.
 | `RATE_LIMITED` | 429 | yes | The caller exceeded the configured rate limit. |
 | `DEPENDENCY_UNAVAILABLE` | 503 | yes | A required dependency is unavailable. |
 | `STORAGE_UNAVAILABLE` | 503 | yes | The database is unavailable or not writable. |
+| `DATABASE_NOT_READY` | 503 | yes | The database is reachable but not ready, for example migrations are behind head. |
 | `INTERNAL_ERROR` | 500 | yes | An unexpected internal error occurred. The message is generic. |
 | `REDACTION_FAILED` | 500 | no | A payload could not be safely redacted; the write was refused and nothing was persisted. |
 

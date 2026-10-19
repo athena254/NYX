@@ -78,6 +78,12 @@ def new_id(prefix: IdPrefix) -> str:
     return f"{prefix}{_next_token()}"
 
 
+def new_request_id() -> str:
+    """Return a new server-generated request/correlation identifier."""
+
+    return f"req_{_next_token()}"
+
+
 def new_system_id() -> str:
     return new_id("sys_")
 

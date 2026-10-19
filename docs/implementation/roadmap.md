@@ -11,7 +11,7 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | Phase | Name | Status | Acceptance scenarios that gate it |
 | --- | --- | --- | --- |
 | 0 | Repository discovery and decisions | done | None numbered; documents, schemas, examples, and ADRs reviewed |
-| 1 | Evidence and event spine | in progress (1a done; 1b not started) | 1, 2, 3, 14, 18 |
+| 1 | Evidence and event spine | done (1a and 1b) | 1, 2, 3, 14, 18 |
 | 2 | Deterministic critic engine | not started | 4, 5, 6, 7, 8, 9, 12, 24 |
 | 3 | Disputes and verification | not started | 10, 11, 22, 23 |
 | 4 | Security and operational hardening | not started | 13, 14, 15, 16, 17, 18, 19, 20 |
@@ -55,8 +55,8 @@ documents, schemas, and examples.
 
 ## Phase 1 — Evidence and event spine
 
-**Status:** in progress. Phase 1a (domain model, storage spine, system registry) is complete; Phase
-1b (HTTP API, CLI ingestion, redaction pipeline, idempotency) is not started.
+**Status:** done (19 October 2026). Phase 1a (domain model, storage spine, system registry) and
+Phase 1b (HTTP API, CLI ingestion, redaction pipeline, idempotency, readiness) are complete.
 
 **Deliverable:** a working local service that can register a system, ingest and retrieve a normalized
 event, claim, and evidence reference, persist them through migrations, and trace each record to its
@@ -64,15 +64,18 @@ source.
 
 **Work items**
 
-- System registry, event/claim/evidence Pydantic models, database tables, and Alembic migration.
-- Repositories and transaction boundaries.
-- Ingestion API and CLI, including batch ingestion with per-item outcomes.
-- Canonicalisation, content hashes, redaction before persistence, payload and batch limits,
-  idempotency, and deduplication with recorded rationale.
-- Append-only audit entries for accepted mutations.
-- Local fixtures and a working `nyx doctor`.
-- Schema/model agreement test for all `schemas/*.schema.json` files.
-- Seed the Ghost Factory demonstration data from SPEC §21.
+- [x] System registry, event/claim/evidence Pydantic models, database tables, and Alembic migration.
+- [x] Repositories and transaction boundaries.
+- [x] Ingestion API and CLI, including batch ingestion with per-item outcomes.
+- [x] Canonicalisation, content hashes, redaction before persistence, payload and batch limits,
+      idempotency, and deduplication with recorded rationale.
+- [x] Append-only audit entries for accepted mutations.
+- [x] Local fixtures, retrieval endpoints, and a working `nyx doctor`.
+- [~] Schema/model agreement test for the five record types that have Pydantic models (system,
+      event, claim, evidence, audit). `finding`, `rebuttal`, and `disposition` schemas have no model
+      until Phase 2/3 and are explicitly deferred.
+- [ ] Seed the Ghost Factory demonstration data into a local database. The source fixtures exist in
+      `tests/fixtures/`; a seed command is deferred until findings can consume it (Phase 2).
 
 **Exit criteria (SPEC §19):** acceptance scenarios 1–3, 14, and 18 pass.
 
@@ -99,6 +102,40 @@ Delivered and verified by `uv run pytest`:
 Not delivered in 1a: HTTP API, CLI ingestion commands, redaction of incoming payloads, event/claim/
 evidence ingestion workflow, idempotency keys, schema/model agreement test, and fixtures. These are
 Phase 1b or later work.
+
+### Phase 1b — HTTP API, CLI, redaction, idempotency (complete)
+
+**Status:** done (19 October 2026). Verified by `uv run pytest` (unit, integration, contract, and
+Hypothesis property tests), `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy`,
+and `uv run alembic upgrade head`.
+
+Delivered:
+
+- [x] Ordered ingestion pipeline: size limit → JSON decode → schema validation → redaction →
+      identity dedupe → persistence + audit in one transaction, with a typed result per record.
+- [x] Producer input models with tolerated server fields and optional `producer_event_id`.
+- [x] Redaction rules for private keys, JWTs, bearer tokens, URL credentials, AWS access keys,
+      API-key-like strings, secret assignments/keys, and high-entropy values. Reports rule names and
+      JSON paths only; fails closed with `REDACTION_FAILED`.
+- [x] Identity-based deduplication with a persisted `idempotency_records` table, migration, and
+      recorded rationale. Never merges on content similarity.
+- [x] Per-item transactional batch ingestion; one rejected item does not roll back accepted items.
+- [x] HTTP subset under `/api/v1`: systems (register/list), events (ingest/retrieve/batch),
+      claims (register/retrieve), evidence (register/retrieve), health, readiness.
+- [x] Structured error envelope, request IDs, cursor pagination, and `DATABASE_NOT_READY`.
+- [x] CLI: `system register|list`, `ingest event|batch`, `claim add`, `evidence add`, and an
+      expanded `doctor`; `--json` everywhere and non-zero exits on failure.
+- [x] Fixtures for the Ghost Factory demonstration; schema/model agreement test for the five
+      records with Pydantic models.
+- [x] `docs/api.md`, `docs/operations.md`, and the regenerated `docs/openapi.json`.
+
+Known limitations:
+
+- No authentication/authorisation or rate limits (Phase 4); the API is for local/trusted use.
+- Dedupe scope is per record type, not per source system; `producer_event_id` must be unique within
+  a type.
+- `GET /api/v1/findings*` is absent by design (Phase 2).
+- Findings, rebuttals, dispositions, verification, and adapters remain out of scope.
 
 **Explicit non-goals for this phase:** critics beyond a stub registry, findings, disputes, and any
 external adapter.

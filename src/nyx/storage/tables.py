@@ -111,6 +111,26 @@ class EvidenceRow(Base):
     retention_class: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
+class IdempotencyRow(Base):
+    """A reserved dedupe key mapping to the record it produced (SPEC §11.2).
+
+    Identity-based only: the composite key is ``(scope, dedupe_key)`` where ``dedupe_key`` is a
+    producer event id or idempotency key. ``request_hash`` records what the key was first
+    accepted with so a later reuse with different content can be detected.
+    """
+
+    __tablename__ = "idempotency_records"
+
+    scope: Mapped[str] = mapped_column(String(32), primary_key=True)
+    dedupe_key: Mapped[str] = mapped_column(String(256), primary_key=True)
+    record_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    request_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    rationale: Mapped[str] = mapped_column(String(2000), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+
+
 class AuditRow(Base):
     __tablename__ = "audit_entries"
     __table_args__ = (UniqueConstraint("sequence", name="uq_audit_entries_sequence"),)

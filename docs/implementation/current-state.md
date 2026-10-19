@@ -4,6 +4,11 @@
 module layout, spec, agent rules").
 **Scope:** repository contents only. No external project was inspected.
 
+> **Historical snapshot.** This document records the repository before Phase 1 work began. It is not
+> maintained as a live inventory. For current status see `docs/implementation/roadmap.md`; after
+> Phase 1b the ingestion pipeline, HTTP API subset, CLI ingestion, redaction, idempotency, readiness,
+> fixtures, and the schema/model agreement test exist.
+
 ## 1. What exists
 
 ### 1.1 Repository and tooling

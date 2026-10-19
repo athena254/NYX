@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from collections.abc import Sequence
+from datetime import datetime
+
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from nyx.domain.enums import Environment, SystemStatus
@@ -54,6 +57,23 @@ class SystemRepository:
         statement = (
             statement.order_by(SystemRow.created_at, SystemRow.id).limit(limit).offset(offset)
         )
+        return [_to_domain(row) for row in self._session.scalars(statement)]
+
+    def list_after(
+        self,
+        *,
+        after: tuple[datetime, str] | None,
+        limit: int,
+        status: SystemStatus | None = None,
+    ) -> Sequence[MonitoredSystem]:
+        """Return a cursor page ordered by ``(created_at, id)``."""
+
+        statement = select(SystemRow)
+        if status is not None:
+            statement = statement.where(SystemRow.status == status.value)
+        if after is not None:
+            statement = statement.where(tuple_(SystemRow.created_at, SystemRow.id) > after)
+        statement = statement.order_by(SystemRow.created_at, SystemRow.id).limit(limit)
         return [_to_domain(row) for row in self._session.scalars(statement)]
 
     def find_by_name_environment(

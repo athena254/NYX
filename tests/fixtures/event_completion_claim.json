@@ -1,0 +1,32 @@
+{
+  "id": "evt_ghost_0001",
+  "schema_version": "1.0",
+  "source_system_id": "sys_ghost_factory_demo",
+  "event_type": "completion.claim.submitted",
+  "occurred_at": "2026-10-19T10:00:00Z",
+  "received_at": "2026-10-19T10:00:01Z",
+  "correlation_id": "run-ghost-demo-001",
+  "actor": {
+    "id": "sys_ghost_factory_demo",
+    "kind": "agent",
+    "display_name": "Ghost Factory tester"
+  },
+  "subject": {
+    "id": "commit-abc123",
+    "kind": "artifact",
+    "display_name": "commit abc123"
+  },
+  "payload": {
+    "claim_id": "clm_ghost_0001",
+    "statement": "All required tests pass for commit abc123.",
+    "repository": "example/ghost-factory-demo",
+    "commit": "abc123",
+    "suite": "required-integration"
+  },
+  "source_ref": "ghost-factory://runs/run-ghost-demo-001/events/1",
+  "content_hash": "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  "trust_class": "observed",
+  "labels": ["demo", "ghost-factory", "completion-claim"],
+  "retention_class": "standard",
+  "producer_event_id": "ghost-event-0001"
+}

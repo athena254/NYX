@@ -43,6 +43,7 @@ from nyx.domain.enums import (
 )
 from nyx.domain.events import Event
 from nyx.domain.evidence import EvidenceItem, EvidenceVerification
+from nyx.domain.idempotency import IdempotencyRecord
 from nyx.domain.ids import (
     IdPrefix,
     new_audit_id,
@@ -53,6 +54,7 @@ from nyx.domain.ids import (
     new_finding_id,
     new_id,
     new_rebuttal_id,
+    new_request_id,
     new_system_id,
 )
 from nyx.domain.systems import DottedCapability, MonitoredSystem
@@ -80,6 +82,7 @@ __all__ = [
     "FindingStatus",
     "IdPrefix",
     "Identifier",
+    "IdempotencyRecord",
     "IntegrityMethod",
     "MonitoredSystem",
     "NyxModel",
@@ -111,6 +114,7 @@ __all__ = [
     "new_finding_id",
     "new_id",
     "new_rebuttal_id",
+    "new_request_id",
     "new_system_id",
     "secretish_key_path",
     "utc_now",
