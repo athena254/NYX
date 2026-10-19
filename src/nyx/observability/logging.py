@@ -8,6 +8,8 @@ from contextvars import ContextVar, Token
 from datetime import UTC, datetime
 from typing import Any
 
+from nyx.ingestion.redaction import RedactionError, redact
+
 request_id_var: ContextVar[str] = ContextVar("nyx_request_id", default="-")
 
 
@@ -57,8 +59,17 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             "request_id": getattr(record, "request_id", request_id_var.get()),
         }
-        for key, value in record.__dict__.items():
-            if key not in _RESERVED and not key.startswith("_"):
+        extras = {
+            key: value
+            for key, value in record.__dict__.items()
+            if key not in _RESERVED and not key.startswith("_")
+        }
+        if extras:
+            try:
+                redacted_extras, _ = redact(extras)
+            except RedactionError:
+                redacted_extras = {}
+            for key, value in redacted_extras.items():
                 payload.setdefault(key, value)
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
