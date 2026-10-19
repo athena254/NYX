@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local data / runtime
+*.db
+*.db-shm
+*.db-wal
+data/
+nyx.sqlite3
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OpenCode / agent scratch
+.opencode/
+tool-output/
+.agent-prompts/
+
+# OS
+Thumbs.db
+desktop.ini
