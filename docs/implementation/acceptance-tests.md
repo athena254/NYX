@@ -29,7 +29,7 @@ unimplemented.
 | 9 | A finding cannot become confirmed without required evidence and rationale. | 2 | `tests/unit/test_critic_c001.py` | [x] |
 | 10 | A rebuttal appends to history and does not overwrite the original finding. | 3 | `tests/integration/test_disputes.py` | [ ] |
 | 11 | Counterevidence can lead to rejection or an inconclusive disposition. | 3 | `tests/integration/test_disputes.py` | [ ] |
-| 12 | Invalid lifecycle transitions are rejected without changing stored state. | 2 | `tests/unit/test_finding_lifecycle.py` | [ ] |
+| 12 | Invalid lifecycle transitions are rejected without changing stored state. | 2 | `tests/unit/test_finding_lifecycle.py` | [x] |
 | 13 | A caller cannot read restricted evidence without the required capability. | 4 | `tests/security/test_evidence_access.py` | [ ] |
 | 14 | Secrets in incoming payloads are redacted before persistence and model processing. | 1 (re-validated 4) | `tests/unit/test_redaction.py`, `tests/integration/test_redaction_persistence.py` | [x] |
 | 15 | Prompt injection embedded in evidence cannot grant tool access or change trusted policy. | 4 (re-validated 6) | `tests/security/test_prompt_injection.py` | [ ] |
