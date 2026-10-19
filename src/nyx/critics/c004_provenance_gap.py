@@ -46,7 +46,14 @@ def _no_finding(proposition: str, rationale: str, scope: Scope) -> CriticResult:
 
 
 def _missing_fields(evidence: EvidenceItem) -> list[str]:
-    """Return the human-readable names of the provenance fields the evidence is missing."""
+    """Return the human-readable names of the provenance fields the evidence is missing.
+
+    ``captured_at`` is deliberately absent from this list. It is a *required* field on
+    ``EvidenceItem``, so ingestion rejects evidence that does not carry one — a missing capture
+    time can never reach this critic. That is boundary enforcement rather than detection, and it
+    is the stronger of the two: the gap is prevented instead of merely reported. The fields
+    checked below are the genuinely optional ones, so they can be absent on a stored record.
+    """
 
     missing: list[str] = []
     if evidence.source_system_id is None and evidence.source_name is None:
@@ -55,8 +62,6 @@ def _missing_fields(evidence: EvidenceItem) -> list[str]:
         missing.append("source identity")
     if evidence.locator is None:
         missing.append("locator")
-    if evidence.captured_at is None:
-        missing.append("capture time")  # type: ignore[unreachable]  # model types this as non-optional but code defensively checks
     if evidence.scope is None:
         missing.append("scope")
     return missing

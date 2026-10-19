@@ -27,6 +27,7 @@ nyx.sqlite3
 .opencode/
 tool-output/
 .agent-prompts/
+.commitmsg-*.txt
 
 # OS
 Thumbs.db

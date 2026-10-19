@@ -266,7 +266,8 @@ class CompletionVsVerificationCritic:
                 result=CriticResultStatus.FINDING,
                 proposition=(
                     f"Completion claim {claim.id} names commit {commit}, but the linked "
-                    f"verification artifact ({evidence.id}) targets a different commit."
+                    f"verification artifact ({evidence.id}) targets commit "
+                    f"{_evidence_commit(evidence)}."
                 ),
                 scope=claim.scope,
                 observations=[

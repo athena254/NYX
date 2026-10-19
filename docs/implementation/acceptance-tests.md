@@ -21,12 +21,12 @@ unimplemented.
 | 1 | An event can be ingested, retrieved, and traced to its source system. | 1 | `tests/integration/test_api_contract.py` | [x] |
 | 2 | Replaying an identical event is idempotent. | 1 | `tests/integration/test_ingestion_idempotency.py` | [x] |
 | 3 | An event with invalid schema is rejected with a structured error and no partial write. | 1 | `tests/integration/test_ingestion_validation.py` | [x] |
-| 4 | A completion claim linked to a passing test run on the same commit does not trigger C-001. | 2 | `tests/unit/test_critic_c001.py` | [ ] |
-| 5 | A completion claim linked only to a different commit triggers a scoped finding. | 2 | `tests/unit/test_critic_c001.py` | [ ] |
-| 6 | Missing verification creates a verification gap, not an assertion that the implementation is defective. | 2 | `tests/unit/test_critic_c001.py` | [ ] |
-| 7 | Contradictory claims for different versions are not automatically treated as contradictory. | 2 | `tests/unit/test_critic_c002.py` | [ ] |
-| 8 | Stale evidence cannot silently verify a newer artifact. | 2 | `tests/unit/test_critic_c003.py` | [ ] |
-| 9 | A finding cannot become confirmed without required evidence and rationale. | 2 | `tests/unit/test_finding_lifecycle.py` | [ ] |
+| 4 | A completion claim linked to a passing test run on the same commit does not trigger C-001. | 2 | `tests/integration/test_findings_readback.py` | [x] |
+| 5 | A completion claim linked only to a different commit triggers a scoped finding. | 2 | `tests/integration/test_findings_readback.py` | [x] |
+| 6 | Missing verification creates a verification gap, not an assertion that the implementation is defective. | 2 | `tests/unit/test_critic_c001.py` | [x] |
+| 7 | Contradictory claims for different versions are not automatically treated as contradictory. | 2 | `tests/unit/test_critic_c002.py` | [x] |
+| 8 | Stale evidence cannot silently verify a newer artifact. | 2 | `tests/unit/test_critic_c003.py` | [x] |
+| 9 | A finding cannot become confirmed without required evidence and rationale. | 2 | `tests/unit/test_critic_c001.py` | [x] |
 | 10 | A rebuttal appends to history and does not overwrite the original finding. | 3 | `tests/integration/test_disputes.py` | [ ] |
 | 11 | Counterevidence can lead to rejection or an inconclusive disposition. | 3 | `tests/integration/test_disputes.py` | [ ] |
 | 12 | Invalid lifecycle transitions are rejected without changing stored state. | 2 | `tests/unit/test_finding_lifecycle.py` | [ ] |
