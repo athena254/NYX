@@ -17,6 +17,7 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | 4 | Security and operational hardening | not started | 13, 14, 15, 16, 17, 18, 19, 20 |
 | 5 | Integrations | not started | No numbered scenarios; adapter contract tests and independent disablement |
 | 6 | Optional model critics and calibration | not started | 19 (re-validated with model critics) plus evaluation-corpus thresholds |
+| 7 | Conversational interface | planned | No numbered scenarios; the chat cannot create a finding or record a disposition |
 
 Scenarios 14 and 18 are first gated in Phase 1 and re-validated in Phase 4. Scenario 19 is first
 gated in Phase 4 for safe failure handling and re-validated in Phase 6 with an actual LLM adapter.
@@ -364,3 +365,40 @@ defined in this phase. Scenario 15 is re-validated against model critics.
 
 **Explicit non-goals for this phase:** treating model output as deterministic verification, using
 model confidence as calibrated probability without separate calibration, or automatic enforcement.
+
+---
+
+## Phase 7 — Conversational interface
+
+**Status:** planned (20 October 2026). See `docs/implementation/conversational-interface-plan.md`.
+
+**Deliverable:** a standalone conversational front-end for NYX, with the CLI as the machine
+interface for other systems.
+
+**Work items**
+
+- [ ] Harden the CLI for other systems: `--json` and exit codes on every command, contract-tested.
+- [ ] NYX MCP server exposing NYX's operations as tools (read and write), with no tool that can
+      create a finding or record a disposition.
+- [ ] LLM provider adapter: OpenAI-compatible `base_url` + `api_key` + `model`, ported from the
+      proven pattern in The-Agency's `agency/llm/`.
+- [ ] Conversational front-end: an interactive CLI chat first, then a Telegram bot.
+- [ ] Provider-failure, timeout, and prompt-injection handling.
+
+**Exit criteria:** a user can ask about stored findings and get an answer citing real finding IDs;
+can file a rebuttal and request verification by chatting; and **no code path exists** by which the
+conversational layer can create a finding or record a disposition.
+
+**Acceptance scenarios:** no numbered scenario gates this phase. It is gated by the "the LLM cannot
+judge" property, proven by test.
+
+**Explicit non-goals for this phase:** LLM-generated findings or dispositions; NYX as a
+general-purpose assistant that performs actions.
+
+### The rule this phase exists to protect
+
+> **The language model is the interface, not the judge.**
+
+NYX's value is that its verdicts are deterministic and evidence-linked. The conversational layer has
+exactly the powers a human has through the API and no more: it can query anything, file a rebuttal,
+and request verification. It cannot create a finding or change a lifecycle state.
