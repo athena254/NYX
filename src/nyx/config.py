@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     llm_enabled: bool = False
     llm_provider: str | None = None
     llm_model: str | None = None
+    # Conversational shell (Phase 7). All are optional: the deterministic core never needs them,
+    # and `nyx chat` refuses to start with a clear message rather than guessing a provider.
+    llm_protocol: Literal["openai", "anthropic"] = "openai"
+    llm_base_url: str = "http://127.0.0.1:3000"
+    llm_api_key: SecretStr | None = None
+    llm_timeout_seconds: float = Field(default=120.0, gt=0)
+    llm_max_retries: int = Field(default=0, ge=0)
+    llm_max_tool_rounds: int = Field(default=8, ge=1, le=20)
     audit_verify_on_startup: bool = True
 
     @model_validator(mode="after")
@@ -71,6 +79,11 @@ class Settings(BaseSettings):
             )
         if self.auth_mode == "api_key" and self.auth_api_key is None:
             raise ValueError("auth_mode='api_key' requires NYX_AUTH_API_KEY to be set")
+        if self.llm_enabled and not self.llm_model:
+            raise ValueError(
+                "NYX_LLM_ENABLED=true requires NYX_LLM_MODEL to be set; "
+                "the chat shell will not guess a model"
+            )
         return self
 
     def safe_effective_config(self) -> dict[str, Any]:

@@ -163,3 +163,53 @@ uv run alembic upgrade head
 
 Phase 4 (security hardening: real authentication, rate limits, audit-chain verification) is the other
 large block of remaining work, and it is what makes NYX safe to expose beyond localhost.
+
+---
+
+## Update — 20 October 2026 (later session)
+
+Steps 1 and 2 above are **done**. Commit `521d9c7` (MCP verification + five defect fixes) and the
+chat work that followed.
+
+**The MCP gap is closed.** `scripts/probe_mcp_live.py` spawns the real server and speaks JSON-RPC to
+it over stdio. Three more probes joined it (`scripts/README-live-probes.md`). All four are green.
+
+**Five real defects, all found by probes the unit tests could not catch:**
+
+| # | Defect | Layer |
+| --- | --- | --- |
+| 1 | `list_critics` read `items` instead of `critics` — healthy 200 reported as `INVALID_OUTPUT` | conversational |
+| 2 | An empty result serialised to an **empty string** | conversational |
+| 3 | A missing record serialised to `null` text, not an explicit absence | conversational |
+| 4 | `get_history` did not normalise `NOT_FOUND` to the absence sentinel | conversational |
+| 5 | **C-010's violation finding could never be recorded** — it named no claim/event, so the composer rejected it, and the rejection escaped the registry's per-critic guard. One inconsistent store turned a routine whole-pack run into a **500**. | **deterministic core** |
+
+**#5 is the one that matters.** It is in `nyx.critics.c010_nyx_self_consistency`, not the shell:
+the critic whose entire job is to report an inconsistent store could not report one.
+
+**`nyx chat` is built and working** (`docs/conversational-interface.md`):
+
+```bash
+nyx chat ask "What findings does NYX have?" --json
+nyx chat shell
+```
+
+`src/nyx/conversational/agent.py` holds the loop. The safety property is tested from three
+directions — the offered tool specs, a guard that refuses to start if a judge tool appears, and the
+refusal a model actually receives. Three more defects surfaced while writing those tests: a
+malformed tool call raised `KeyError` instead of returning a result, and the assistant's answer was
+never kept in the transcript so a follow-up turn had no memory of what was said.
+
+**Honest limitations, recorded in the docs rather than hidden:**
+
+- Local reasoning models spend their budget on a `reasoning` field the adapter ignores. A full turn
+  with `qwen3.5:0.8b` takes **30–90 seconds**.
+- **A model can still embellish.** Observed live: asked about a finding, it appended "recommended
+  actions" NYX never returned. The ids it cited were real; the prose around them was invented. The
+  prompt forbids this; nothing structural prevents it yet.
+
+**Gates:** 323 tests pass, mypy strict clean (96 files), ruff clean, `alembic upgrade head` clean.
+
+**dmr-X is still not running** — that is unchanged, and remains the user's call. The chat was
+exercised against local Ollama over the same OpenAI-compatible wire.
+

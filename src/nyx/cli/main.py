@@ -22,6 +22,15 @@ from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 
 from nyx.config import Settings
+from nyx.conversational.agent import (
+    ChatAgent,
+    ChatError,
+    assert_no_judge_tools,
+    build_llm_config,
+)
+from nyx.conversational.client import NyxClient, NyxClientError
+from nyx.conversational.llm import build_client
+from nyx.conversational.mcp_server import tool_names as mcp_tool_names
 from nyx.critics import register_storage_backed
 from nyx.critics.registry import CriticRegistryError, list_critics
 from nyx.disputes.service import (
@@ -73,6 +82,7 @@ claim_app = typer.Typer(help="Register claims.", no_args_is_help=True)
 evidence_app = typer.Typer(help="Register evidence items.", no_args_is_help=True)
 critic_app = typer.Typer(help="List and run the deterministic critics.", no_args_is_help=True)
 finding_app = typer.Typer(help="List and inspect findings.", no_args_is_help=True)
+chat_app = typer.Typer(help="Talk to NYX.", no_args_is_help=True)
 
 app.add_typer(system_app, name="system")
 app.add_typer(ingest_app, name="ingest")
@@ -80,6 +90,7 @@ app.add_typer(claim_app, name="claim")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(critic_app, name="critic")
 app.add_typer(finding_app, name="finding")
+app.add_typer(chat_app, name="chat")
 
 
 @app.callback()
@@ -816,6 +827,144 @@ def finding_history(
     for disposition in history.dispositions:
         supersedes = disposition.supersedes_disposition_id or "-"
         typer.echo(f"  {disposition.id}  {disposition.outcome.value}  supersedes={supersedes}")
+
+
+# --------------------------------------------------------------------------- chat
+
+
+def _chat_refuse(message: str, json_output: bool) -> None:
+    """Report a chat failure without a stack trace, then exit non-zero."""
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "code": ErrorCode.INVALID_REQUEST.value,
+                    "message": message,
+                    "request_id": "cli",
+                },
+                indent=2,
+            )
+        )
+    else:
+        typer.echo(message, err=True)
+    raise typer.Exit(code=1)
+
+
+@chat_app.callback()
+def chat_main(
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Talk to NYX. The model answers from NYX's record; it never judges."""
+
+
+@chat_app.command("ask")
+def chat_ask(
+    question: str = typer.Argument(..., help="What to ask NYX."),
+    actor: str = typer.Option("cli-user", "--actor", help="Who is asking, for the audit trail."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Ask NYX one question and print the answer."""
+
+    _require_llm()
+    agent = _build_agent(actor=actor)
+    try:
+        answer = agent.run(question)
+    except ChatError as exc:
+        _chat_refuse(str(exc), json_output)
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "answer": answer,
+                    "touched": agent.touched,
+                    "tool_calls": len([m for m in agent.history if m.tool_calls]),
+                },
+                indent=2,
+            )
+        )
+        return
+    typer.echo(answer)
+    if agent.touched:
+        typer.echo(f"\nNYX records touched: {', '.join(agent.touched)}", err=True)
+
+
+@chat_app.command("shell")
+def chat_shell(
+    actor: str = typer.Option("cli-user", "--actor", help="Who is asking, for the audit trail."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Interactive chat with NYX. Ctrl-D or an empty line exits."""
+
+    _require_llm()
+    agent = _build_agent(actor=actor)
+    typer.echo("NYX chat. The model answers from NYX's record; it cannot judge.")
+    typer.echo("Type a question. Empty line or Ctrl-D exits.\n", err=True)
+    while True:
+        try:
+            question = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            typer.echo()
+            break
+        if not question:
+            break
+        try:
+            answer = agent.run(question)
+        except ChatError as exc:
+            typer.echo(str(exc), err=True)
+            continue
+        if json_output:
+            typer.echo(json.dumps({"answer": answer}, indent=2))
+        else:
+            typer.echo(f"nyx> {answer}")
+    if agent.touched:
+        typer.echo(f"NYX records touched this session: {', '.join(agent.touched)}", err=True)
+
+
+def _require_llm() -> None:
+    """Refuse to start if the LLM is not configured, with an actionable message."""
+
+    settings = Settings()
+    if not settings.llm_enabled:
+        _chat_refuse(
+            "NYX_LLM_ENABLED is false. Set it to true in .env, with NYX_LLM_MODEL, "
+            "NYX_LLM_BASE_URL and (if the provider needs one) NYX_LLM_API_KEY.",
+            True,
+        )
+    if not settings.llm_model:
+        _chat_refuse("NYX_LLM_MODEL is not set; the chat shell will not guess a model.", True)
+
+
+def _build_agent(*, actor: str) -> ChatAgent:
+    """Build the chat agent from settings, checking NYX is reachable first."""
+
+    settings = Settings()
+    assert settings.llm_model is not None  # nosec B101 - _require_llm() guarantees this
+    config = build_llm_config(
+        protocol=settings.llm_protocol,
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key.get_secret_value() if settings.llm_api_key else None,
+        model=settings.llm_model,
+        timeout_seconds=settings.llm_timeout_seconds,
+        max_retries=settings.llm_max_retries,
+    )
+    client = NyxClient(base_url=f"http://{settings.host}:{settings.port}")
+    try:
+        client.list_systems(limit=1)
+    except NyxClientError as exc:
+        _chat_refuse(
+            f"NYX is not reachable at {client.base_url} ({exc.code}). "
+            "Start it with: uv run python -m uvicorn nyx.api.app:create_app --factory",
+            True,
+        )
+    assert_no_judge_tools(mcp_tool_names())
+    return ChatAgent(
+        build_client(config),
+        client,
+        actor=actor,
+        max_rounds=settings.llm_max_tool_rounds,
+    )
 
 
 if __name__ == "__main__":

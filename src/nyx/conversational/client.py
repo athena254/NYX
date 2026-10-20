@@ -56,6 +56,12 @@ class NyxClient:
         self._timeout = timeout
         self._transport = transport
 
+    @property
+    def base_url(self) -> str:
+        """The NYX origin this client talks to, for diagnostics."""
+
+        return self._base_url
+
     # -- internals ---------------------------------------------------------
 
     def _url(self, path: str) -> str:
