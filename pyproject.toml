@@ -16,6 +16,14 @@ dependencies = [
     "python-json-logger>=2.0",
 ]
 
+[project.optional-dependencies]
+# The conversational shell (Phase 7). Kept as an extra so the deterministic core
+# does not require it: `pip install nyx` stays lean, `pip install nyx[conversational]`
+# pulls in the MCP server and its LLM transport.
+conversational = [
+    "mcp>=2.3",
+]
+
 [project.scripts]
 nyx = "nyx.cli.main:app"
 
