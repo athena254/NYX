@@ -33,6 +33,8 @@ IdPrefix = Literal[
     "crn_",
     "rbt_",
     "dsp_",
+    "vbj_",
+    "plv_",
     "aud_",
 ]
 
@@ -115,6 +117,14 @@ def new_rebuttal_id() -> str:
 
 def new_disposition_id() -> str:
     return new_id("dsp_")
+
+
+def new_verification_job_id() -> str:
+    return new_id("vbj_")
+
+
+def new_policy_version_id() -> str:
+    return new_id("plv_")
 
 
 def new_audit_id() -> str:

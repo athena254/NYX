@@ -1,8 +1,13 @@
-"""SQLAlchemy declarative tables mapped 1:1 onto the Phase 1a domain aggregates.
+"""SQLAlchemy declarative tables mapped 1:1 onto the domain aggregates.
 
 Enumerations are stored as their string values. Structured fields (system metadata, event
 payloads, claim scopes, lineage lists) use JSON columns. Columns that the API will filter on
 are indexed.
+
+The dispute tables (``rebuttals``, ``dispositions``, ``verification_jobs``, ``policy_versions``)
+are **append-only**: no repository exposes an update or delete for them, because the SPEC §5.7
+contract is that a disposition supersedes its predecessor by linking to it and never rewrites it.
+A new row is the only supported way to record a change.
 """
 
 from __future__ import annotations
@@ -209,3 +214,106 @@ class CriticRunRow(Base):
     resource_usage: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     failure_details: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     finding_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+
+
+class RebuttalRow(Base):
+    """A challenge to a finding (SPEC §5.7). Append-only.
+
+    ``evidence_ids`` is the counterevidence the submitter attaches. It is stored on the rebuttal
+    because the challenge is what introduces it; the finding's own ``counterevidence_ids`` is the
+    derived view the critics read.
+    """
+
+    __tablename__ = "rebuttals"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    finding_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    submitted_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    argument: Mapped[str] = mapped_column(String(4000), nullable=False)
+    evidence_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    requested_outcome: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+
+
+class VerificationJobRow(Base):
+    """One independent verification attempt (SPEC §5.7, §7 step 8). Append-only.
+
+    ``independence`` records how the check relates to the critic that raised the finding. It
+    is a first-class column rather than a comment because "no independent method exists" is a
+    limitation a reader must be able to query, not a footnote they might miss.
+    """
+
+    __tablename__ = "verification_jobs"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    finding_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    check_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    requested_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    result_summary: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    independence: Mapped[str] = mapped_column(String(2000), nullable=False)
+    evidence_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    tool_run_refs: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    failure_details: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DispositionRow(Base):
+    """The authorised outcome of a finding (SPEC §5.7). Append-only, supersede-by-link.
+
+    ``supersedes_disposition_id`` is the chain link. It is indexed because reconstructing the chain
+    is the primary read pattern, and the current disposition is the row that nothing supersedes.
+    """
+
+    __tablename__ = "dispositions"
+    # A disposition may be superseded at most once: the chain must never branch. NULLs compare as
+    # distinct, so this does not (and cannot) constrain how many dispositions are first in a chain.
+    __table_args__ = (
+        UniqueConstraint(
+            "finding_id", "supersedes_disposition_id", name="uq_dispositions_superseded_once"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    finding_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    rationale: Mapped[str] = mapped_column(String(4000), nullable=False)
+    decided_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    verification_run_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    policy_version: Mapped[str] = mapped_column(String(256), nullable=False)
+    supersedes_disposition_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, index=True
+    )
+
+
+class PolicyVersionRow(Base):
+    """One recorded version of a policy rule, and who changed it (acceptance scenario 22).
+
+    Append-only by construction: registering a new version inserts a row. The ``(rule_id, version)``
+    pair is unique so the same version cannot be recorded twice under different change reasons.
+    """
+
+    __tablename__ = "policy_versions"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "version", name="uq_policy_versions_rule_version"),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    rule_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(256), nullable=False)
+    digest: Mapped[str] = mapped_column(String(97), nullable=False)
+    changed_by: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    change_reason: Mapped[str] = mapped_column(String(4000), nullable=False)

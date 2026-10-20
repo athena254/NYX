@@ -1,9 +1,9 @@
 """Hand-written JSON Schemas and Pydantic domain models must agree on the same records.
 
-Scope: the five record types that have both a checked-in schema and a Pydantic model —
-system, event, claim, evidence, audit. ``finding``, ``rebuttal``, ``disposition`` and
-``rebuttal`` schemas exist from Phase 0 but have no Pydantic model yet (Phase 2/3), so they
-cannot be compared here and are explicitly deferred.
+Scope: every record type that has both a checked-in schema and a Pydantic model — system,
+event, claim, evidence, audit, rebuttal, and disposition. ``finding`` has a model (Phase 2)
+but no checked-in example, so it still cannot be compared here. The schemas each state that
+this agreement test is what turns a Phase 0 contract into a verified artifact.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import pytest
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ValidationError
 
+from nyx.disputes.models import Disposition, Rebuttal
 from nyx.domain.audit import AuditEntry
 from nyx.domain.claims import Claim
 from nyx.domain.events import Event
@@ -41,12 +42,30 @@ _AUDIT_EXAMPLE: dict[str, Any] = {
     "entry_hash": "sha256:" + "a" * 64,
 }
 
+_DISPOSITION_EXAMPLE: dict[str, Any] = {
+    "id": "dsp_ghost_0001",
+    "schema_version": "1.0",
+    "finding_id": "fnd_ghost_0001",
+    "outcome": "rejected",
+    "rationale": (
+        "Counterevidence ev_ghost_002 shows the required integration test passed on commit abc123, "
+        "so the premise that verification was missing does not hold."
+    ),
+    "decided_by": "principal_operator",
+    "decided_at": "2026-10-19T12:00:00Z",
+    "verification_run_ids": ["vbj_ghost_0001"],
+    "policy_version": "1.0",
+    "supersedes_disposition_id": None,
+}
+
 _CASES = [
     pytest.param("system", MonitoredSystem, "system-manifest.json", None, id="system"),
     pytest.param("event", Event, "event.json", None, id="event"),
     pytest.param("claim", Claim, "claim.json", None, id="claim"),
     pytest.param("evidence", EvidenceItem, "evidence.json", None, id="evidence"),
     pytest.param("audit", AuditEntry, None, _AUDIT_EXAMPLE, id="audit"),
+    pytest.param("rebuttal", Rebuttal, "rebuttal.json", None, id="rebuttal"),
+    pytest.param("disposition", Disposition, None, _DISPOSITION_EXAMPLE, id="disposition"),
 ]
 
 

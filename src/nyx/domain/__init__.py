@@ -53,9 +53,11 @@ from nyx.domain.ids import (
     new_evidence_id,
     new_finding_id,
     new_id,
+    new_policy_version_id,
     new_rebuttal_id,
     new_request_id,
     new_system_id,
+    new_verification_job_id,
 )
 from nyx.domain.systems import DottedCapability, MonitoredSystem
 
@@ -100,6 +102,8 @@ __all__ = [
     "TrustClass",
     "UtcDatetime",
     "VerificationResult",
+    "VerificationJobStatus",
+    "VerificationOutcome",
     "canonical_json",
     "canonical_text",
     "content_hash",
@@ -113,9 +117,11 @@ __all__ = [
     "new_evidence_id",
     "new_finding_id",
     "new_id",
+    "new_policy_version_id",
     "new_rebuttal_id",
     "new_request_id",
     "new_system_id",
+    "new_verification_job_id",
     "secretish_key_path",
     "utc_now",
 ]

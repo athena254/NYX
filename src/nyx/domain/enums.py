@@ -204,3 +204,25 @@ class AuditOutcome(StrEnum):
     FAILURE = "failure"
     DENIED = "denied"
     ERROR = "error"
+
+
+class VerificationJobStatus(StrEnum):
+    """The lifecycle of an independent verification run (SPEC §5.7, §7 step 8).
+
+    ``refused`` is a real outcome, not an error: a job whose check is not on the allowlist never
+    runs. Distinguishing it keeps "we declined to run this" from "we ran it and it failed".
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    REFUSED = "refused"
+
+
+class VerificationOutcome(StrEnum):
+    """What an independent verification run established about the proposition."""
+
+    SUPPORTED = "supported"
+    REFUTED = "refuted"
+    INCONCLUSIVE = "inconclusive"
