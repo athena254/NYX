@@ -223,6 +223,27 @@ class _HTTPClient(ABC):
                 ) from exc
         return self._parse_response(_decode_response(response, url))
 
+    def _origin(self) -> str:
+        """Return the configured base URL with any credentials removed.
+
+        ``httpx`` turns ``https://user:pass@host`` into a Basic auth header on its own, regardless
+        of this client's own header logic -- so a password embedded in ``base_url`` would go out on
+        the wire even though nothing here set it, and scrubbing log text would not help. Credentials
+        belong in ``LLMConfig.api_key``, which is sent as the protocol's own auth header.
+
+        Refused rather than silently downgraded: silently dropping the password would send an
+        unauthenticated request that fails in a way the user did not ask for.
+        """
+
+        raw = self._config.base_url
+        parts = urlsplit(raw)
+        if parts.username is None and parts.password is None:
+            return raw.rstrip("/")
+        raise LLMError(
+            "base_url must not embed credentials; set LLMConfig.api_key instead",
+            code=LLMErrorCode.INVALID_REQUEST,
+        )
+
     @abstractmethod
     def _endpoint(self) -> str: ...
 
@@ -268,7 +289,7 @@ class OpenAICompatibleClient(_HTTPClient):
     """OpenAI-compatible ``/v1/chat/completions`` backend."""
 
     def _endpoint(self) -> str:
-        return f"{self._config.base_url.rstrip('/')}/v1/chat/completions"
+        return f"{self._origin()}/v1/chat/completions"
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -404,7 +425,7 @@ class AnthropicClient(_HTTPClient):
     """Anthropic Messages ``/v1/messages`` backend."""
 
     def _endpoint(self) -> str:
-        return f"{self._config.base_url.rstrip('/')}/v1/messages"
+        return f"{self._origin()}/v1/messages"
 
     def _headers(self) -> dict[str, str]:
         headers = {

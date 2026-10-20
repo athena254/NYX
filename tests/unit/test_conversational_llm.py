@@ -286,13 +286,20 @@ def test_error_messages_never_contain_the_api_key() -> None:
     assert _KEY not in repr(excinfo.value)
 
 
-def test_url_credentials_are_stripped_from_error_messages() -> None:
+def test_provider_error_messages_do_not_leak_the_key() -> None:
+    """A genuine provider failure must not echo the credential.
+
+    Credentials embedded in ``base_url`` are refused outright (see
+    ``test_credentials_embedded_in_base_url_are_refused``), so this covers the remaining case: a
+    valid URL whose provider call still fails.
+    """
+
     def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("refused", request=request)
+        return httpx.Response(502, text="upstream exploded")
 
     config = LLMConfig(
         protocol="openai",
-        base_url="http://user:url-password@provider.invalid",
+        base_url="http://provider.invalid",
         api_key=_KEY,
     )
     client = OpenAICompatibleClient(config, transport=httpx.MockTransport(handler))
@@ -301,9 +308,8 @@ def test_url_credentials_are_stripped_from_error_messages() -> None:
         asyncio.run(client.chat([ChatMessage(role="user", content="Hi")]))
 
     message = str(excinfo.value)
-    assert "url-password" not in message
-    assert _KEY not in message
     assert "provider.invalid" in message
+    assert _KEY not in message
 
 
 def test_unavailable_is_retried_up_to_max_retries() -> None:
@@ -358,3 +364,55 @@ def test_build_client_selects_the_protocol_backend() -> None:
 
     assert isinstance(openai, OpenAICompatibleClient)
     assert isinstance(anthropic, AnthropicClient)
+
+
+@pytest.mark.parametrize("protocol", ["openai", "anthropic"])
+def test_credentials_embedded_in_base_url_are_refused(protocol: str) -> None:
+    """A password in ``base_url`` must never reach the wire.
+
+    ``httpx`` converts ``https://user:pass@host`` into a Basic auth header on its own, regardless of
+    this client's own header logic -- so scrubbing log text is not a defence. The client refuses the
+    call and points at ``LLMConfig.api_key``, which is sent as the protocol's own auth header.
+    """
+
+    config = LLMConfig(
+        protocol=protocol,  # type: ignore[arg-type]
+        base_url="https://alice:s3cr3t-pw@provider.example",
+    )
+    client = build_client(config)
+    object.__setattr__(client, "_transport", httpx.MockTransport(_explode))
+
+    with pytest.raises(LLMError) as excinfo:
+        asyncio.run(client.chat([ChatMessage(role="user", content="hi")]))
+
+    assert excinfo.value.code is LLMErrorCode.INVALID_REQUEST
+    assert "api_key" in str(excinfo.value)
+    # The refusal must not echo the credential either.
+    assert "s3cr3t-pw" not in str(excinfo.value)
+
+
+def _explode(request: httpx.Request) -> httpx.Response:
+    """A transport that fails the test loudly if a refused call still reaches it."""
+
+    raise AssertionError(
+        f"a refused request reached the transport: {request.url} "
+        f"authorization={request.headers.get('authorization', 'ABSENT')}"
+    )
+
+
+def test_a_clean_base_url_still_sends_the_configured_key() -> None:
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["authorization"] = request.headers.get("authorization", "ABSENT")
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+        )
+
+    client = build_client(LLMConfig(base_url="https://provider.example", api_key="sk-TEST-KEY"))
+    object.__setattr__(client, "_transport", httpx.MockTransport(handler))
+    asyncio.run(client.chat([ChatMessage(role="user", content="hi")]))
+
+    assert seen["url"] == "https://provider.example/v1/chat/completions"
+    assert seen["authorization"] == "Bearer sk-TEST-KEY"
