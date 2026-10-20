@@ -8,6 +8,14 @@ is run in CI or locally, and passes against the implementation. After the Phase 
 marked “re-validated” must still pass in the later phase, but the earlier phase owns the first passing
 test.
 
+**Phase 2 note (20 October 2026):** scenarios 4–9 and 12 are checked after the Phase 2a/2b runs, verified
+with `uv run pytest` (185 tests passing) against real Alembic-migrated SQLite databases, `uv run mypy`
+(strict, 81 files), and `uv run ruff check .` (121 files). Scenario 24 stays **unchecked**: the C-010
+critic exists, is registered, and is tested in both directions by `tests/unit/test_critic_c010.py`, but
+it is not enforced as a gate on `confirmed`, so the invariant "every confirmed finding passes the NYX
+self-consistency critic" is not yet upheld by any code path. Scenarios 10, 11, 22, and 23 are Phase 3.
+
+
 **Phase 1b note (19 October 2026):** scenarios 1, 2, 3, 14, and 18 were run with
 `uv run pytest -q` (89 tests passing) against a real Alembic-migrated SQLite database. Two test files
 were renamed from the Phase 0 plan and the table below records the current paths. Scenario 14's
@@ -41,7 +49,7 @@ unimplemented.
 | 21 | API and CLI expose consistent status and error semantics. | 4 | `tests/contract/test_api_cli_consistency.py` | [ ] |
 | 22 | A policy change records the new version and who changed it. | 3 | `tests/integration/test_policy_versioning.py` | [ ] |
 | 23 | A fixed finding remains open until verification or a documented authorised waiver. | 3 | `tests/integration/test_finding_lifecycle.py` | [ ] |
-| 24 | Every confirmed finding passes the NYX self-consistency critic. | 2 | `tests/unit/test_critic_c010.py` | [ ] |
+| 24 | Every confirmed finding passes the NYX self-consistency critic. | 2 | `tests/unit/test_critic_c010.py` | [ ] C-010 exists and passes in both directions, but is not enforced as a gate on `confirmed`. |
 
 ## Phase gate view
 

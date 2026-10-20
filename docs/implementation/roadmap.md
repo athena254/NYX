@@ -12,7 +12,7 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | --- | --- | --- | --- |
 | 0 | Repository discovery and decisions | done | None numbered; documents, schemas, examples, and ADRs reviewed |
 | 1 | Evidence and event spine | done (1a and 1b) | 1, 2, 3, 14, 18 |
-| 2 | Deterministic critic engine | not started | 4, 5, 6, 7, 8, 9, 12, 24 |
+| 2 | Deterministic critic engine | done (2a and 2b) | 4, 5, 6, 7, 8, 9, 12; 24 partial |
 | 3 | Disputes and verification | not started | 10, 11, 22, 23 |
 | 4 | Security and operational hardening | not started | 13, 14, 15, 16, 17, 18, 19, 20 |
 | 5 | Integrations | not started | No numbered scenarios; adapter contract tests and independent disablement |
@@ -144,25 +144,77 @@ external adapter.
 
 ## Phase 2 — Deterministic critic engine
 
-**Status:** not started.
+**Status:** done (20 October 2026). Phase 2a (critic engine, finding composer, C-001..C-004) and Phase 2b
+(C-005..C-010, the policy engine, and the finding lifecycle state machine) are complete.
 
 **Deliverable:** a deterministic critic engine that turns the Phase 1 records into evidence-linked
 findings without an LLM.
 
 **Work items**
 
-- Critic interface, registry, versioning, and critic-run persistence.
-- C-001 through C-007.
-- C-008 through C-010.
-- Finding composition with observation/inference/recommendation/unknown separation.
-- Finding deduplication, severity, querying, and the lifecycle state machine.
-- C-001 end-to-end: completion claim, mismatched commit, evidence-linked finding.
-- Negative case: same-commit passing evidence prevents a false positive.
+- [x] Critic interface, registry, versioning, and critic-run persistence.
+- [x] C-001 through C-004.
+- [x] C-005 through C-010.
+- [x] Finding composition with observation/inference/recommendation/unknown separation.
+- [x] Finding deduplication, severity, querying, and the lifecycle state machine.
+- [x] C-001 end-to-end: completion claim, mismatched commit, evidence-linked finding.
+- [x] Negative case: same-commit passing evidence prevents a false positive.
 
 **Exit criteria (SPEC §19):** deterministic critics are testable without an LLM and acceptance
 scenarios 4–9, 12, and 24 pass.
 
 **Acceptance scenarios:** 4, 5, 6, 7, 8, 9, 12, 24.
+
+### Phase 2a — Critic engine, composer, C-001..C-004 (complete)
+
+**Status:** done (19 October 2026).
+
+Delivered:
+
+- [x] Critic interface (`critics/base.py`), registry (`critics/registry.py`), and `CriticRun`
+      persistence with type/version/inputs/timestamps/outcome.
+- [x] `critics/__init__.py` registers C-001..C-004 at import.
+- [x] Finding composer separating observations, inferences, recommendations, and unknowns.
+- [x] Finding deduplication, severity, querying, and the read-only findings API/CLI surface.
+- [x] C-001 completion claim vs. verification (scenarios 4–6).
+- [x] C-002 contradictory records (scenario 7), C-003 evidence freshness (scenario 8),
+      C-004 provenance gap.
+- [x] Unit tests for scenarios 6–9 and a C-001 fix for false negatives in the success/failure markers.
+
+### Phase 2b — Full critic pack, policy engine, lifecycle machine (complete)
+
+**Status:** done (20 October 2026). Verified with `uv run pytest` (185 tests passing), `uv run mypy`
+(81 files, strict), `uv run ruff check .` (121 files), and `uv run ruff format --check .`.
+
+Delivered:
+
+- [x] Finding lifecycle state machine (`findings/lifecycle.py`) implementing the SPEC §6 graph as
+      data, with per-target and per-edge safety rules, a capability seam, and an audit entry for
+      every accepted transition (scenario 12).
+- [x] C-005 policy violation with a built-in versioned rule engine (`policies/engine.py`) that
+      resolves rules, reports the exact policy ID/version, carries the input record, and raises on
+      an unknown policy ID. Each violation names the policy ID and version, carries the input
+      record payload, and sets `category=policy_violation`.
+- [x] C-006 risky action without authorisation. Seven controls against three positive tests; an
+      ordinary action, a blank `approval_ref`, and the substring "undeploy" all stay quiet. Its
+      findings state in their own limitations that NYX performed nothing (safety invariant 6).
+- [x] C-007 repeated failure regression, C-008 unsupported certainty, C-009 evidence conflict,
+      C-010 NYX self-consistency.
+- [x] C-009 returns `INCONCLUSIVE`, not a finding, on a conflicting-evidence case: a critic that
+      guesses on ambiguous evidence is worse than one that declines.
+- [x] C-010 registered through `register_storage_backed()` so the API factory and the CLI both pass
+      the session factory they already built; constructed without one it returns an `ERROR` result
+      rather than a silent pass.
+
+Known limitations:
+
+- Scenario 24 ("every confirmed finding passes the NYX self-consistency critic") is **partially**
+  met. The C-010 critic exists, is registered, and is tested in both directions (a consistent store
+  stays quiet; a store with a missing lifecycle transition or a tampered audit entry fires). It is
+  **not** enforced as a gate on `confirmed`, so a finding can currently be confirmed without C-010
+  being consulted. The box in `acceptance-tests.md` therefore stays unchecked.
+- The capability seam is still `DenyAllCapabilityChecker` until Phase 4 wires real authentication.
+- `docs/implementation/task-checklist.md` step 12 (audit chain verification) remains open.
 
 **Explicit non-goals for this phase:** rebuttals, dispositions, verification jobs, LLM critics.
 

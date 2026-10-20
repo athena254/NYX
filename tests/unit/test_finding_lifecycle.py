@@ -19,7 +19,8 @@ from itertools import count
 from pathlib import Path
 
 import pytest
-from hypothesis import given
+from hypothesis import HealthCheck, given
+from hypothesis import settings as hypothesis_settings
 from hypothesis import strategies as st
 from sqlalchemy.orm import Session
 
@@ -153,6 +154,15 @@ def test_scenario_12_invalid_transition_rejected_and_state_unchanged(
 # ---------------------------------------------------------------------------
 
 
+# The 200ms default wall-clock deadline is wrong for a property test that copies a
+# migrated SQLite database and drives up to ten transactions per example: the
+# bottleneck is file I/O, not the state machine. This follows the same convention
+# as tests/unit/test_ingestion_properties.py.
+@hypothesis_settings(
+    max_examples=40,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
+)
 @given(targets=st.lists(st.sampled_from(list(FindingStatus)), max_size=10))
 def test_no_transition_sequence_reaches_an_invalid_state(
     migration_template: Path, targets: list[FindingStatus]
