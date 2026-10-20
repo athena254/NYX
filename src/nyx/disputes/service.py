@@ -68,6 +68,14 @@ _REBUTTAL_PATH: tuple[FindingStatus, ...] = (
     FindingStatus.REBUTTAL_PENDING,
 )
 
+#: The route to ``verification_pending``, from which every verdict is reachable (SPEC §6).
+_VERDICT_PATH: tuple[FindingStatus, ...] = (
+    FindingStatus.EVIDENCE_PENDING,
+    FindingStatus.CHALLENGED,
+    FindingStatus.REBUTTAL_PENDING,
+    FindingStatus.VERIFICATION_PENDING,
+)
+
 _OUTCOME_TO_STATUS: dict[DispositionOutcome, FindingStatus] = {
     DispositionOutcome.CONFIRMED: FindingStatus.CONFIRMED,
     DispositionOutcome.PARTIALLY_CONFIRMED: FindingStatus.PARTIALLY_CONFIRMED,
@@ -187,8 +195,9 @@ class DisputeService:
         # already-challenged one arrive by the same route. A finding already past rebuttal
         # (verification_pending or later) has no edge back and stays where it is: the rebuttal is
         # still recorded, because a challenge is history even when it cannot reopen the finding.
+        destination = _REBUTTAL_PATH[-1]
         for target in _REBUTTAL_PATH:
-            if finding.status is target:
+            if finding.status is destination:
                 break
             if target not in allowed_transitions(finding.status):
                 continue
@@ -200,7 +209,7 @@ class DisputeService:
                 counterevidence_ids=(
                     list(evidence_ids) if target is FindingStatus.REBUTTAL_PENDING else []
                 ),
-                rationale=f"rebuttal {rebuttal.id} submitted by {submitted_by}: {argument}",
+                rationale=(f"rebuttal {rebuttal.id} submitted by {submitted_by}: {argument}"),
             )
             finding = self._require_finding(finding_id)
         return rebuttal
@@ -236,18 +245,24 @@ class DisputeService:
         self._jobs.add(job)
         return job
 
-    def run_pending_verification(self, *, limit: int = 100) -> list[VerificationJob]:
+    def run_pending_verification(
+        self, *, limit: int = 100, finding_id: Identifier | None = None
+    ) -> list[VerificationJob]:
         """Run queued jobs through the allowlist, oldest first.
 
-        A job that is refused or that fails is recorded as such; it is never rewritten into a
-        success. The finding is not touched -- only an authorised disposition moves it, so a failed
-        verification can never look like a passed one.
+        Pass ``finding_id`` to run only that finding's jobs. A job that is refused or that fails
+        is recorded as such; it is never rewritten into a success. The finding is not touched --
+        only an authorised disposition moves it, so a failed verification can never look like a
+        passed one.
         """
 
         if self._allowlist is None:
             return []
         completed: list[VerificationJob] = []
-        for job in self._jobs.list_queued(limit=limit):
+        queued = self._jobs.list_queued(limit=limit)
+        for job in queued:
+            if finding_id is not None and job.finding_id != finding_id:
+                continue
             finding = self._findings.get(job.finding_id)
             if finding is None:
                 continue
@@ -311,6 +326,25 @@ class DisputeService:
             if rebuttals:
                 rebuttal_id = rebuttals[-1].id
 
+        # Every verdict is reachable only from ``verification_pending`` (SPEC §6), so walk the
+        # canonical path there first -- the same route ``submit_rebuttal`` uses. A finding already
+        # past that point (confirmed, remediation_pending, ...) has no edge back, and the verdict is
+        # then validated against its actual state: a confirmed finding cannot simply be rejected.
+        verdict_state = _VERDICT_PATH[-1]
+        for step in _VERDICT_PATH:
+            if finding.status is verdict_state:
+                break
+            if step not in allowed_transitions(finding.status):
+                continue
+            self._transition(
+                finding,
+                step,
+                actor=actor,
+                rebuttal_id=rebuttal_id,
+                rationale=rationale,
+            )
+            finding = self._require_finding(finding_id)
+
         previous = self._dispositions.latest(finding.id)
         self._transition(
             finding,
@@ -357,6 +391,11 @@ class DisputeService:
         """Return one disposition's full supersession chain, oldest first."""
 
         return list(self._dispositions.chain(disposition_id))
+
+    def get_verification_job(self, *, job_id: Identifier) -> VerificationJob | None:
+        """Return one verification attempt, or ``None`` if it does not exist."""
+
+        return self._jobs.get(job_id)
 
     # -- internals ---------------------------------------------------------
 

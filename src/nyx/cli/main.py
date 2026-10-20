@@ -11,6 +11,8 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +24,31 @@ from sqlalchemy.engine import make_url
 from nyx.config import Settings
 from nyx.critics import register_storage_backed
 from nyx.critics.registry import CriticRegistryError, list_critics
-from nyx.domain.enums import FindingStatus, Severity
+from nyx.disputes.service import (
+    DisputeError,
+    DisputeService,
+    FindingNotFoundError,
+    UnknownEvidenceError,
+)
+from nyx.disputes.verification import (
+    VerificationNotPermittedError,
+    default_allowlist,
+)
+from nyx.domain.base import PrincipalRef
+from nyx.domain.enums import (
+    DispositionOutcome,
+    FindingStatus,
+    PrincipalKind,
+    RebuttalRequestedOutcome,
+    Severity,
+)
 from nyx.domain.ids import new_request_id
 from nyx.error_codes import ErrorCode
+from nyx.findings.lifecycle import (
+    CapabilityDeniedError,
+    DenyAllCapabilityChecker,
+    InvalidLifecycleTransitionError,
+)
 from nyx.findings.service import FindingQuery, FindingService
 from nyx.ingestion.errors import IngestResult, StructuredError
 from nyx.ingestion.limits import LimitExceededError
@@ -32,6 +56,7 @@ from nyx.ingestion.service import IngestionService
 from nyx.storage.db import (
     create_engine_from_settings,
     create_session_factory,
+    session_scope,
 )
 from nyx.storage.migrations import inspect_migrations
 
@@ -132,6 +157,28 @@ def _finding_service() -> FindingService:
     # must be handed the same session factory the CLI just built.
     register_storage_backed(factory)
     return FindingService(factory)
+
+
+@contextmanager
+def _dispute_session() -> Iterator[DisputeService]:
+    """Yield a dispute service over one transaction.
+
+    The CLI has no HTTP request to hang a transaction on, so each command opens exactly one. The
+    capability checker is deny-all until Phase 4 wires authentication: the CLI can record a rebuttal
+    or request verification, and a disposition is refused with ``CAPABILITY_REQUIRED``.
+    """
+
+    engine = create_engine_from_settings(Settings())
+    factory = create_session_factory(engine)
+    try:
+        with session_scope(factory) as session:
+            yield DisputeService(
+                session,
+                capability_checker=DenyAllCapabilityChecker(),
+                allowlist=default_allowlist(),
+            )
+    finally:
+        engine.dispose()
 
 
 def _print_record(record: Any, json_output: bool, human: str) -> None:
@@ -588,6 +635,187 @@ def finding_show(
         typer.echo("limitations:")
         for item in finding.limitations:
             typer.echo(f"  - {item}")
+
+
+# --------------------------------------------------------------------------- dispute
+
+
+def _dispute_error(code: ErrorCode, message: str, json_output: bool) -> None:
+    _emit_error(StructuredError(code=code.value, message=message, request_id="cli"), json_output)
+
+
+def _actor_for(identifier: str) -> PrincipalRef:
+    """Build the actor for a CLI action.
+
+    The CLI has no authenticated identity yet; Phase 4 replaces this with the logged-in principal.
+    """
+
+    return PrincipalRef(id=identifier or "principal_cli", kind=PrincipalKind.PRINCIPAL)
+
+
+@finding_app.command("rebut")
+def finding_rebut(
+    finding_id: str = typer.Argument(..., help="Stable id of the finding being challenged."),
+    source: str = typer.Option("-", "--file", help="Rebuttal JSON file, or '-' for stdin."),
+    submitted_by: str = typer.Option(..., "--submitted-by", help="Identity of the challenger."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Challenge a finding. The rebuttal appends to history; the finding is not overwritten."""
+
+    document = _load_json(_read_raw(source), json_output)
+    if not isinstance(document, dict):
+        _dispute_error(
+            ErrorCode.INVALID_REQUEST, "Rebuttal input must be a JSON object.", json_output
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        with _dispute_session() as dispute:
+            rebuttal = dispute.submit_rebuttal(
+                finding_id=finding_id,
+                actor=_actor_for(submitted_by),
+                submitted_by=submitted_by,
+                argument=str(document.get("argument", "")),
+                evidence_ids=list(document.get("evidence_ids", [])),
+                requested_outcome=RebuttalRequestedOutcome(
+                    str(document.get("requested_outcome", "no_change"))
+                ),
+            )
+    except UnknownEvidenceError as exc:
+        _dispute_error(ErrorCode.UNKNOWN_EVIDENCE_ID, exc.detail, json_output)
+        raise typer.Exit(code=1) from exc
+    except FindingNotFoundError as exc:
+        _dispute_error(ErrorCode.NOT_FOUND, exc.detail, json_output)
+        raise typer.Exit(code=1) from exc
+    except (ValidationError, DisputeError) as exc:
+        _dispute_error(ErrorCode.INVALID_REQUEST, str(exc), json_output)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(rebuttal.model_dump(mode="json", by_alias=True), indent=2))
+        return
+    typer.echo(f"rebuttal {rebuttal.id} recorded against {finding_id}")
+
+
+@finding_app.command("verify")
+def finding_verify(
+    finding_id: str = typer.Argument(..., help="Stable id of the finding to verify."),
+    check: str = typer.Option("critics.rerun-linked", "--check", help="Allowlisted check id."),
+    requested_by: str = typer.Option("principal_cli", "--requested-by"),
+    run: bool = typer.Option(False, "--run", help="Run queued jobs immediately."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Request an allowlisted verification check, then optionally run it."""
+
+    try:
+        with _dispute_session() as dispute:
+            job = dispute.request_verification(
+                finding_id=finding_id, check_id=check, requested_by=requested_by
+            )
+            jobs = dispute.run_pending_verification(finding_id=finding_id) if run else [job]
+    except VerificationNotPermittedError as exc:
+        _dispute_error(ErrorCode.VERIFICATION_NOT_PERMITTED, exc.detail, json_output)
+        raise typer.Exit(code=1) from exc
+    except FindingNotFoundError as exc:
+        _dispute_error(ErrorCode.NOT_FOUND, exc.detail, json_output)
+        raise typer.Exit(code=1) from exc
+    except DisputeError as exc:
+        _dispute_error(ErrorCode.INVALID_REQUEST, exc.detail, json_output)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(
+            json.dumps([item.model_dump(mode="json", by_alias=True) for item in jobs], indent=2)
+        )
+        return
+    for item in jobs:
+        typer.echo(f"{item.id}  {item.check_id}  {item.status.value}")
+
+
+@finding_app.command("dispose")
+def finding_dispose(
+    finding_id: str = typer.Argument(..., help="Stable id of the finding."),
+    outcome: DispositionOutcome = typer.Option(..., "--outcome"),
+    reason: str = typer.Option(..., "--reason", help="Why this outcome was reached."),
+    decided_by: str = typer.Option("principal_cli", "--decided-by"),
+    policy_version: str = typer.Option("1.0", "--policy-version"),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Record an authorised outcome. Requires the disposition capability (Phase 4)."""
+
+    try:
+        with _dispute_session() as dispute:
+            disposition = dispute.record_disposition(
+                finding_id=finding_id,
+                actor=_actor_for(decided_by),
+                outcome=outcome,
+                rationale=reason,
+                decided_by=decided_by,
+                policy_version=policy_version,
+            )
+    except CapabilityDeniedError as exc:
+        _dispute_error(ErrorCode.CAPABILITY_REQUIRED, exc.detail, json_output)
+        raise typer.Exit(code=1) from exc
+    except InvalidLifecycleTransitionError as exc:
+        _dispute_error(ErrorCode.INVALID_LIFECYCLE_TRANSITION, exc.detail, json_output)
+        raise typer.Exit(code=1) from exc
+    except FindingNotFoundError as exc:
+        _dispute_error(ErrorCode.NOT_FOUND, exc.detail, json_output)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(disposition.model_dump(mode="json", by_alias=True), indent=2))
+        return
+    typer.echo(f"disposition {disposition.id} recorded: {outcome.value}")
+
+
+@finding_app.command("history")
+def finding_history(
+    finding_id: str = typer.Argument(..., help="Stable id of the finding."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Show the full dispute record: finding, rebuttals, verification, disposition chain."""
+
+    try:
+        with _dispute_session() as dispute:
+            history = dispute.get_history(finding_id=finding_id)
+    except FindingNotFoundError as exc:
+        _dispute_error(ErrorCode.NOT_FOUND, exc.detail, json_output)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "finding": history.finding.model_dump(mode="json", by_alias=True),
+                    "rebuttals": [
+                        item.model_dump(mode="json", by_alias=True) for item in history.rebuttals
+                    ],
+                    "verification_jobs": [
+                        item.model_dump(mode="json", by_alias=True)
+                        for item in history.verification_jobs
+                    ],
+                    "dispositions": [
+                        item.model_dump(mode="json", by_alias=True) for item in history.dispositions
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return
+
+    typer.echo(f"{history.finding.id}  {history.finding.status.value}")
+    typer.echo("")
+    typer.echo(f"rebuttals: {len(history.rebuttals)}")
+    for rebuttal in history.rebuttals:
+        typer.echo(f"  {rebuttal.id}  {rebuttal.submitted_by}  {rebuttal.requested_outcome.value}")
+    typer.echo(f"verification jobs: {len(history.verification_jobs)}")
+    for job in history.verification_jobs:
+        typer.echo(f"  {job.id}  {job.check_id}  {job.status.value}")
+    typer.echo(f"dispositions: {len(history.dispositions)}")
+    for disposition in history.dispositions:
+        supersedes = disposition.supersedes_disposition_id or "-"
+        typer.echo(f"  {disposition.id}  {disposition.outcome.value}  supersedes={supersedes}")
 
 
 if __name__ == "__main__":

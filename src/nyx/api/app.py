@@ -9,9 +9,20 @@ import nyx.critics  # noqa: F401 - registers the deterministic critic pack
 from nyx import __version__
 from nyx.api.errors import register_exception_handlers
 from nyx.api.middleware import RequestIdMiddleware
-from nyx.api.routes import claims, critics, events, evidence, findings, health, systems
+from nyx.api.routes import (
+    claims,
+    critics,
+    disputes,
+    events,
+    evidence,
+    findings,
+    health,
+    systems,
+)
 from nyx.config import Settings
 from nyx.critics import register_storage_backed
+from nyx.disputes.verification import default_allowlist
+from nyx.findings.lifecycle import DenyAllCapabilityChecker
 from nyx.findings.service import FindingService
 from nyx.ingestion.service import IngestionService
 from nyx.observability.logging import configure_logging
@@ -62,6 +73,10 @@ def create_app(
     app.state.session_factory = session_factory
     app.state.service = IngestionService(session_factory, effective)
     app.state.finding_service = FindingService(session_factory)
+    # Phase 4 replaces both: real authentication supplies the checker, and the allowlist is
+    # already explicit (a check is code, registered in one place). Deny-all is the safe default.
+    app.state.capability_checker = DenyAllCapabilityChecker()
+    app.state.verification_allowlist = default_allowlist()
 
     # C-010 audits NYX's own store, so it must be handed THIS session factory -- the one every
     # request writes through -- or it would inspect a different database than the live one.
@@ -76,6 +91,7 @@ def create_app(
     app.include_router(evidence.router, prefix=_API_V1)
     app.include_router(findings.router, prefix=_API_V1)
     app.include_router(critics.router, prefix=_API_V1)
+    app.include_router(disputes.router, prefix=_API_V1)
     app.include_router(health.router, prefix=_API_V1)
 
     return app
