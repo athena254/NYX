@@ -1,6 +1,6 @@
-# NYX HTTP API — Phase 1 subset
+# NYX HTTP API
 
-**Source:** `docs/SPEC.md` §9.1. **Last updated:** 19 October 2026.
+**Source:** `docs/SPEC.md` §9.1, §5.7. **Last updated:** 20 October 2026.
 
 The generated, authoritative document is checked in at `docs/openapi.json` and served at
 `/openapi.json` with interactive docs at `/docs`. This page is a human-readable summary; if it
@@ -25,8 +25,37 @@ All routes are under `/api/v1`. Every response carries an `X-Request-Id` header,
 | `GET` | `/api/v1/claims/{claim_id}` | Retrieve one claim. | `200` / `404` |
 | `POST` | `/api/v1/evidence` | Register an evidence item or reference. | `201` |
 | `GET` | `/api/v1/evidence/{evidence_id}` | Retrieve one evidence item. | `200` / `404` |
+| `GET` | `/api/v1/critics` | List the registered critics and their declared scope. | `200` |
+| `POST` | `/api/v1/critics/run` | Run the selected critics against one event. | `200` |
+| `GET` | `/api/v1/findings` | List findings (filtered, cursor-paginated). | `200` |
+| `GET` | `/api/v1/findings/{finding_id}` | Retrieve one finding with its evidence links. | `200` / `404` |
 
-`GET /api/v1/findings/*` is **not** part of Phase 1 and is deliberately absent (Phase 2).
+### Dispute protocol (Phase 3)
+
+| Method | Path | Purpose | Success |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/findings/{finding_id}/rebuttals` | Challenge a finding. Appends; never overwrites. | `200` |
+| `GET` | `/api/v1/findings/{finding_id}/rebuttals` | List a finding's rebuttals, oldest first. | `200` |
+| `POST` | `/api/v1/findings/{finding_id}/verification-jobs` | Queue an allowlisted verification check. | `200` |
+| `GET` | `/api/v1/findings/{finding_id}/verification-jobs` | List a finding's verification attempts. | `200` |
+| `POST` | `/api/v1/findings/{finding_id}/verification-jobs/run` | Run the finding's queued jobs. | `200` |
+| `GET` | `/api/v1/verification-jobs/{job_id}` | Retrieve one verification attempt. | `200` / `404` |
+| `POST` | `/api/v1/findings/{finding_id}/dispositions` | Record an authorised outcome. | `200` |
+| `GET` | `/api/v1/findings/{finding_id}/history` | The full dispute record, including the chain. | `200` |
+| `GET` | `/api/v1/policies/versions` | Recorded policy changes, newest first. | `200` |
+
+There is **no `PATCH` and no `DELETE`** in the dispute surface. Nothing in the protocol rewrites a
+prior record: a disposition supersedes by linking, a rebuttal appends, and a verification attempt is a
+new row. See `docs/dispute-protocol.md` for the loop end to end.
+
+Two failure codes are specific to this surface:
+
+- `UNKNOWN_EVIDENCE_ID` (`422`) — a rebuttal cited evidence that does not exist. Refused before
+  anything is stored.
+- `VERIFICATION_NOT_PERMITTED` (`403`) — the requested check is not on the allowlist. Refused before
+  anything executes, so untrusted input never reaches a command line.
+- `CAPABILITY_REQUIRED` (`403`) — the caller may not change a disposition. The checker defaults to
+  deny-all until Phase 4 wires authorisation.
 
 ## Request bodies
 
@@ -92,5 +121,8 @@ logged or echoed. If redaction cannot complete safely the write is refused with
 
 ## Deferred
 
-Findings, rebuttals, dispositions, verification jobs, authentication/authorisation, and rate limits
-are later phases. Until then the API is intended for local or trusted-network use only.
+Authentication, authorisation, rate limits, retention jobs, and audit-chain verification are later
+phases. The dispute protocol records the actor from the request body today, so every dispute record
+is self-asserted until Phase 4 replaces it with a verified principal; the audit trail states this.
+
+Until then the API is intended for local or trusted-network use only.

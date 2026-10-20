@@ -1,8 +1,8 @@
 # Acceptance tests — SPEC §17.2
 
 All 24 acceptance scenarios are listed below. A box may be checked only when the named test exists,
-is run in CI or locally, and passes against the implementation. After the Phase 2b run, scenarios 1–9,
-12, 14, and 18 are checked with the exact tests named below; all others remain unchecked.
+is run in CI or locally, and passes against the implementation. After the Phase 3 run, scenarios 1–12,
+14, 18, 22, and 23 are checked with the exact tests named below; all others remain unchecked.
 
 **Ownership rule:** the phase column is the first phase that must satisfy the scenario. A scenario
 marked “re-validated” must still pass in the later phase, but the earlier phase owns the first passing
@@ -13,7 +13,12 @@ with `uv run pytest` (185 tests passing) against real Alembic-migrated SQLite da
 (strict, 81 files), and `uv run ruff check .` (121 files). Scenario 24 stays **unchecked**: the C-010
 critic exists, is registered, and is tested in both directions by `tests/unit/test_critic_c010.py`, but
 it is not enforced as a gate on `confirmed`, so the invariant "every confirmed finding passes the NYX
-self-consistency critic" is not yet upheld by any code path. Scenarios 10, 11, 22, and 23 are Phase 3.
+self-consistency critic" is not yet upheld by any code path.
+
+**Phase 3 note (20 October 2026):** scenarios 10, 11, 22, and 23 are checked. Scenario 16 stays
+unchecked on purpose: it is Phase 4-owned, and checking it here would break the ownership rule.
+Phase 3's obligation is the narrower one -- do not create the hole -- and the allowlist is
+unit-tested to refuse an unregistered check before anything executes.
 
 
 **Phase 1b note (19 October 2026):** scenarios 1, 2, 3, 14, and 18 were run with
@@ -35,8 +40,8 @@ unimplemented.
 | 7 | Contradictory claims for different versions are not automatically treated as contradictory. | 2 | `tests/unit/test_critic_c002.py` | [x] |
 | 8 | Stale evidence cannot silently verify a newer artifact. | 2 | `tests/unit/test_critic_c003.py` | [x] |
 | 9 | A finding cannot become confirmed without required evidence and rationale. | 2 | `tests/unit/test_critic_c001.py` | [x] |
-| 10 | A rebuttal appends to history and does not overwrite the original finding. | 3 | `tests/integration/test_disputes.py` | [ ] |
-| 11 | Counterevidence can lead to rejection or an inconclusive disposition. | 3 | `tests/integration/test_disputes.py` | [ ] |
+| 10 | A rebuttal appends to history and does not overwrite the original finding. | 3 | `tests/integration/test_disputes.py` | [x] Phase 3: a rebuttal appends and leaves the finding otherwise unchanged. |
+| 11 | Counterevidence can lead to rejection or an inconclusive disposition. | 3 | `tests/integration/test_disputes.py` | [x] Phase 3: counterevidence leads to rejection or inconclusive, and the negative case is covered. |
 | 12 | Invalid lifecycle transitions are rejected without changing stored state. | 2 | `tests/unit/test_finding_lifecycle.py` | [x] |
 | 13 | A caller cannot read restricted evidence without the required capability. | 4 | `tests/security/test_evidence_access.py` | [ ] |
 | 14 | Secrets in incoming payloads are redacted before persistence and model processing. | 1 (re-validated 4) | `tests/unit/test_redaction.py`, `tests/integration/test_redaction_persistence.py` | [x] |
@@ -47,8 +52,8 @@ unimplemented.
 | 19 | LLM timeout or invalid structured output does not corrupt finding state. | 4 (stub) / 6 (live adapter) | `tests/unit/test_llm_critic_failure.py` | [ ] |
 | 20 | `nyx doctor`, health, and readiness correctly report dependency state without leaking secrets. | 4 | `tests/integration/test_health_and_doctor.py` | [ ] |
 | 21 | API and CLI expose consistent status and error semantics. | 4 | `tests/contract/test_api_cli_consistency.py` | [ ] |
-| 22 | A policy change records the new version and who changed it. | 3 | `tests/integration/test_policy_versioning.py` | [ ] |
-| 23 | A fixed finding remains open until verification or a documented authorised waiver. | 3 | `tests/integration/test_finding_lifecycle.py` | [ ] |
+| 22 | A policy change records the new version and who changed it. | 3 | `tests/integration/test_policy_versioning.py` | [x] Phase 3: a policy change records the version, actor, and reason. |
+| 23 | A fixed finding remains open until verification or a documented authorised waiver. | 3 | `tests/integration/test_finding_lifecycle.py` | [x] Phase 3: a fixed finding stays open without a verification result or waiver. |
 | 24 | Every confirmed finding passes the NYX self-consistency critic. | 2 | `tests/unit/test_critic_c010.py` | [ ] C-010 exists and passes in both directions, but is not enforced as a gate on `confirmed`. |
 
 ## Phase gate view
@@ -56,8 +61,8 @@ unimplemented.
 | Phase | Acceptance scenarios |
 | --- | --- |
 | 1 — Evidence and event spine | 1, 2, 3, 14, 18 |
-| 2 — Deterministic critic engine | 4, 5, 6, 7, 8, 9, 12, 24 |
-| 3 — Disputes and verification | 10, 11, 22, 23 |
+| 2 — Deterministic critic engine | 4, 5, 6, 7, 8, 9, 12 (24 partial) |
+| 3 — Disputes and verification | 10, 11, 22, 23 (all passing) |
 | 4 — Security and operational hardening | 13, 14, 15, 16, 17, 18, 19, 20 |
 | 5 — Integrations | No numbered scenarios; adapter contract and disablement tests |
 | 6 — Optional model critics and calibration | 19 (live model path), 15 (model path), calibration thresholds |

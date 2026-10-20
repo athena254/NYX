@@ -13,7 +13,7 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | 0 | Repository discovery and decisions | done | None numbered; documents, schemas, examples, and ADRs reviewed |
 | 1 | Evidence and event spine | done (1a and 1b) | 1, 2, 3, 14, 18 |
 | 2 | Deterministic critic engine | done (2a and 2b) | 4, 5, 6, 7, 8, 9, 12; 24 partial |
-| 3 | Disputes and verification | not started | 10, 11, 22, 23 |
+| 3 | Disputes and verification | done | 10, 11, 22, 23 |
 | 4 | Security and operational hardening | not started | 13, 14, 15, 16, 17, 18, 19, 20 |
 | 5 | Integrations | not started | No numbered scenarios; adapter contract tests and independent disablement |
 | 6 | Optional model critics and calibration | not started | 19 (re-validated with model critics) plus evaluation-corpus thresholds |
@@ -222,26 +222,67 @@ Known limitations:
 
 ## Phase 3 — Disputes and verification
 
-**Status:** not started.
+**Status:** done (20 October 2026). Verified with `uv run pytest` (243 tests passing), `uv run mypy`
+(strict, 91 files), `uv run ruff check .` (139 files), and `uv run alembic upgrade head`.
 
 **Deliverable:** an append-only dispute workflow with verification jobs and authorised dispositions.
 
 **Work items**
 
-- Rebuttal submission and counterevidence links.
-- Verification requests and queue/runner using allowlisted checks.
-- Disposition submission with capability checks and required rationale.
-- Supersession links; no deletion of prior findings, rebuttals, or dispositions.
-- History API/CLI.
-- Transactional state transitions with audit entries.
-- Policy versioning for disposition rules.
+- [x] Rebuttal submission and counterevidence links.
+- [x] Verification requests and queue/runner using allowlisted checks.
+- [x] Disposition submission with capability checks and required rationale.
+- [x] Supersession links; no deletion of prior findings, rebuttals, or dispositions.
+- [x] History API/CLI.
+- [x] Transactional state transitions with audit entries.
+- [x] Policy versioning for disposition rules.
 
 **Exit criteria (SPEC §19):** acceptance scenarios 10–11 and 22–23 pass.
 
 **Acceptance scenarios:** 10, 11, 22, 23.
 
+### What was built
+
+- **Models and storage** (`src/nyx/disputes/models.py`, four append-only tables, one migration):
+  `Rebuttal`, `VerificationJob`, `Disposition`, `PolicyVersion`. A disposition supersedes by storing
+  the previous disposition's id; the previous row is never rewritten.
+- **Policy versioning** (`src/nyx/policies/versions.py`): `PolicyVersionStore.register` makes a rule
+  live and records who changed it in one call, so a policy cannot become active without a recorded
+  change (scenario 22).
+- **Verification allowlist** (`src/nyx/disputes/verification.py`): a check that is not registered
+  cannot run, and an unregistered id is refused before anything executes. The built-in check re-runs
+  the critics that produced a finding against current records, records a new `CriticRun`, composes no
+  second finding, and states that it is a reproduction check rather than independent corroboration.
+- **Dispute service** (`src/nyx/disputes/service.py`): rebuttals, verification jobs, dispositions, and
+  history. Every state change goes through `FindingLifecycle`.
+- **API and CLI**: nine dispute endpoints and `nyx finding rebut|verify|dispose|history`.
+- **`docs/dispute-protocol.md`**: the challenge loop end to end with a worked example.
+
+### Two rules worth recording
+
+1. **A challenged finding must name what was weighed.** A rebuttal is an answerable challenge, so a
+   challenged finding cannot be dismissed as `rejected` or `inconclusive` without recording the
+   counterevidence considered. The rule is scoped to findings that actually have a rebuttal, so an
+   unchallenged finding can still be rejected on its own terms.
+2. **A verdict is reachable only from `verification_pending`**, so `record_disposition` walks the
+   canonical path there first, the same way `submit_rebuttal` walks to `rebuttal_pending`. A finding
+   already past that point has no edge back, and the verdict is validated against its actual state.
+
 **Explicit non-goals for this phase:** performing remediation, external enforcement, or closing a
 finding merely because the target says it is fixed.
+
+### Known limitations
+
+- **No authentication.** The actor is taken from the request body, so every dispute record is
+  self-asserted until Phase 4 replaces it with a verified principal. The audit trail states this.
+- **The capability checker defaults to deny-all**, so a default deployment accepts rebuttals and
+  refuses dispositions. That is the safe direction and is deliberate.
+- **Scenario 16 is deliberately not checked.** "A verification tool cannot execute an arbitrary
+  command supplied by an untrusted event" is Phase 4-owned; checking a Phase 4 box from Phase 3
+  would break the ownership rule. Phase 3's obligation is narrower: do not create the hole. The
+  allowlist is unit-tested to refuse unregistered checks.
+- **Audit-chain verification (`nyx audit verify`) is Phase 4.** The staged prompt asked for it here;
+  the plan recorded why it does not belong in this phase.
 
 ---
 

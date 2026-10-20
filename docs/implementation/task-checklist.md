@@ -19,7 +19,7 @@ its runtime behaviour is implemented or verified.
 | 8 | C-001 completion-vs-verification critic. | `src/nyx/critics/c001_completion_vs_verification.py`, `tests/unit/test_critic_c001.py` | [x] Phase 2a: implemented and tested (scenarios 4–6), including the same-commit negative case. |
 | 9 | Finding composition, query, and lifecycle state machine. | `src/nyx/findings/*`, `src/nyx/domain/lifecycle.py`, `tests/unit/test_finding_lifecycle.py`, `tests/integration/test_findings_api.py` | [x] Phase 2a/2b: composer, dedup, read-only findings surface, and the SPEC §6 lifecycle machine exist and are tested (scenario 12, including a Hypothesis property over transition sequences). The state machine lives in `src/nyx/findings/lifecycle.py`, not `domain/lifecycle.py`; `test_findings_api.py` is not written. |
 | 10 | Remaining deterministic critics (C-002–C-010). | `src/nyx/critics/c002_*.py` … `c010_*.py`, `tests/unit/test_critic_c002.py` … `test_critic_c010.py` | [x] Phase 2a/2b: C-002..C-010 all exist, are registered, and have unit tests. The built-in versioned policy engine lives in `src/nyx/policies/engine.py`. |
-| 11 | Rebuttal, verification, and disposition workflows. | `src/nyx/disputes/*`, `src/nyx/api/routes/findings.py`, `tests/integration/test_disputes.py` | [ ] |
+| 11 | Rebuttal, verification, and disposition workflows. | `src/nyx/disputes/*`, `src/nyx/api/routes/disputes.py`, `tests/integration/test_disputes.py` | [x] Phase 3: rebuttals, allowlisted verification jobs, dispositions with supersession links, and history, through the service, API, and CLI. Routes live in `src/nyx/api/routes/disputes.py` rather than `findings.py`, which stays read-only. |
 | 12 | Audit verification and self-consistency checks. | `src/nyx/audit/*`, `src/nyx/critics/c010_self_consistency.py`, `tests/integration/test_audit_integrity.py` | [~] Phase 1a: append-only audit writer with a documented hash chain exists and system-registration tests check linkage. Phase 2b: C-010 self-consistency critic exists, is registered, and is tested in both directions. Chain verification (`test_audit_integrity.py`) is still Phase 4. |
 | 13 | CLI and API contract completion. | `src/nyx/cli/*`, `src/nyx/api/*`, `docs/api.md`, `tests/contract/test_api_cli_consistency.py`, generated OpenAPI checked in | [~] Phase 1b: the Phase 1 subset, `docs/api.md`, and a drift-tested `docs/openapi.json` exist. A dedicated API/CLI consistency test and the full API surface are later work. |
 | 14 | Security hardening and negative tests. | `src/nyx/api/auth.py`, `src/nyx/api/errors.py`, `tests/security/*`, `.github/workflows/*`, `docs/threat-model.md` updates | [ ] |
@@ -45,7 +45,7 @@ seed command remain open. Verified with `uv run pytest` (89 tests), `uv run ruff
 
 ## Phase 2 run note (20 October 2026)
 
-Phase 2a and 2b completed steps 7–10 (with the gaps named inline above). They added the critic
+Phase 3 completed step 11. Phase 2a and 2b completed steps 7–10 (with the gaps named inline above). They added the critic
 interface and registry, `CriticRun` persistence, the finding composer, finding dedup and the read-only
 findings surface, all ten deterministic critics (C-001..C-010), the built-in versioned policy engine,
 and the SPEC §6 finding lifecycle state machine. Step 11 (rebuttals, verification, dispositions) is

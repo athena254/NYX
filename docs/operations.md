@@ -1,4 +1,4 @@
-# NYX operations — local Phase 1
+# NYX operations — local service
 
 **Last updated:** 19 October 2026.
 
@@ -84,12 +84,52 @@ name and JSON path only.
 | Schema invalid | `422 SCHEMA_VALIDATION_FAILED` with `field_details`; no partial write. |
 | Duplicate identity | `409 DUPLICATE_EVENT` naming the original record; no second row. |
 | Redaction cannot complete | `500 REDACTION_FAILED`; nothing is persisted. |
+| Rebuttal cites unknown evidence | `422 UNKNOWN_EVIDENCE_ID`; nothing is stored. |
+| Check not on the allowlist | `403 VERIFICATION_NOT_PERMITTED`; nothing is executed. |
+| Disposition without the capability | `403 CAPABILITY_REQUIRED`; the finding is unchanged. |
+| Invalid lifecycle transition | `409 INVALID_LIFECYCLE_TRANSITION`; the stored state is unchanged. |
 
 Ingestion is atomic per item. A batch is not atomic as a whole: accepted items remain committed
 while a rejected item is reported individually.
 
+## Disputing a finding
+
+The dispute protocol is described end to end in `docs/dispute-protocol.md`. Operationally:
+
+```bash
+# Challenge a finding; the rebuttal appends and the finding is not overwritten.
+curl -sS -X POST http://127.0.0.1:8000/api/v1/findings/fnd_xxx/rebuttals \
+  -H 'Content-Type: application/json' \
+  -d '{"submitted_by": "sys_ghost_factory_demo",
+       "argument": "The attached report covers commit abc123.",
+       "evidence_ids": ["ev_xxx"],
+       "requested_outcome": "withdrawn"}'
+
+# Re-examine it. A check that is not allowlisted is refused before anything runs.
+curl -sS -X POST http://127.0.0.1:8000/api/v1/findings/fnd_xxx/verification-jobs \
+  -d '{"check_id": "critics.rerun-linked", "requested_by": "principal_operator"}'
+curl -sS -X POST http://127.0.0.1:8000/api/v1/findings/fnd_xxx/verification-jobs/run
+
+# Read everything recorded, in the order it happened.
+curl -sS http://127.0.0.1:8000/api/v1/findings/fnd_xxx/history
+```
+
+The CLI equivalents are `nyx finding rebut`, `nyx finding verify`, `nyx finding dispose`, and
+`nyx finding history`.
+
+Three operational facts worth knowing:
+
+- **A default deployment refuses dispositions.** The capability checker is deny-all until Phase 4
+  wires authorisation, so `nyx finding dispose` exits non-zero with `CAPABILITY_REQUIRED` by design.
+  Rebuttals and verification requests still work.
+- **Nothing is ever deleted.** Rebuttals, verification attempts, dispositions, and policy versions
+  are append-only. A new disposition supersedes the previous one by linking to it; the earlier row
+  stays readable forever. There is no `PATCH` or `DELETE`.
+- **A verification attempt is not a verdict.** It records whether the finding reproduces, together
+  with an explicit independence statement. Only an authorised disposition moves the finding.
+
 ## Deferred operational work
 
-Authentication/authorisation, rate limiting, retention jobs, external adapters, finding/verification
-workflows, and container/CI hardening are later phases. There is no automated backup scheduler or
-metrics endpoint yet; monitor logs and `/ready` externally.
+Authentication/authorisation, rate limiting, retention jobs, external adapters, and container/CI
+hardening are later phases. Audit-chain verification (`nyx audit verify`) is also still open. There is
+no automated backup scheduler or metrics endpoint yet; monitor logs and `/ready` externally.
