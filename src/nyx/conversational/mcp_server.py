@@ -118,11 +118,17 @@ def build_server(client: NyxClient | None = None) -> MCPServer:
         """Run one client call, converting NYX errors into a reportable string.
 
         An error is a *result*, not an exception: the caller needs to see that NYX refused, and
-        the reason, rather than a stack trace.
+        the reason, rather than a stack trace. A tool whose operation legitimately returns
+        nothing -- a missing finding, an empty list -- must say so explicitly, because a model
+        reading an empty string cannot tell "nothing here" from "the call failed".
+
+        Every non-error result carries the ``operation`` name, and every list is wrapped under
+        ``results``. The shape therefore does not depend on whether the store happened to be
+        empty when the call was made: a model that parsed one response can parse them all.
         """
 
         try:
-            return _json(function())
+            value = function()
         except NyxClientError as exc:
             return _json(
                 {
@@ -131,6 +137,11 @@ def build_server(client: NyxClient | None = None) -> MCPServer:
                     "operation": operation,
                 }
             )
+        if isinstance(value, list):
+            return _json({"operation": operation, "results": value})
+        if value is None:
+            return _json({"operation": operation, "result": None})
+        return _json({"operation": operation, "result": value})
 
     @server.tool(name="nyx_list_systems", description=_TOOL_DESCRIPTIONS["nyx_list_systems"])
     def nyx_list_systems(limit: int = 50) -> str:

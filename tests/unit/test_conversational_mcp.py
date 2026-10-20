@@ -27,7 +27,9 @@ def _server(handler) -> MCPServer:
     return build_server(NyxClient("http://nyx.test", transport=httpx.MockTransport(handler)))
 
 
-def _ok(payload: object) -> httpx.Response:
+def _ok(payload: object = {"items": []}) -> httpx.Response:
+    """An empty page: what the live API returns for an empty store."""
+
     return httpx.Response(200, json=payload)
 
 
@@ -72,7 +74,8 @@ def test_read_tool_returns_nyx_data_as_json() -> None:
     result = asyncio.run(_server(handler).call_tool("nyx_list_findings", {"limit": 10}))
 
     payload = json.loads(_text(result))
-    assert [item["id"] for item in payload] == ["fnd_1"]
+    assert payload["operation"] == "list_findings"
+    assert [item["id"] for item in payload["results"]] == ["fnd_1"]
 
 
 def test_write_tool_reaches_nyx_and_returns_the_record() -> None:
@@ -91,7 +94,28 @@ def test_write_tool_reaches_nyx_and_returns_the_record() -> None:
     )
 
     payload = json.loads(_text(result))
-    assert payload["id"] == "rbt_1"
+    assert payload["operation"] == "submit_rebuttal"
+    assert payload["result"]["id"] == "rbt_1"
+
+
+def test_tool_result_shape_does_not_depend_on_the_store_being_empty() -> None:
+    """An empty result and a populated one must parse the same way.
+
+    The tool layer used to wrap only the empty case, so a model had to branch on whether the
+    store happened to hold anything. Both shapes are now identical.
+    """
+
+    empty = asyncio.run(
+        _server(lambda _request: _ok({"items": []})).call_tool("nyx_list_findings", {})
+    )
+    populated = asyncio.run(
+        _server(lambda _request: _ok({"items": [{"id": "fnd_1"}]})).call_tool(
+            "nyx_list_findings", {}
+        )
+    )
+
+    assert json.loads(_text(empty))["results"] == []
+    assert [item["id"] for item in json.loads(_text(populated))["results"]] == ["fnd_1"]
 
 
 def test_nyx_refusal_is_a_result_not_an_exception() -> None:
@@ -123,6 +147,36 @@ def test_unavailable_nyx_is_reported_rather_than_raising() -> None:
 
     payload = json.loads(_text(result))
     assert payload["error"] == "UNAVAILABLE"
+
+
+def test_empty_results_are_explicit_not_an_empty_string() -> None:
+    """A tool result must never be an empty string.
+
+    Found by driving the server against a live NYX: a legitimate empty result serialised to
+    `""`, which a model cannot tell apart from a failed call. The shape now says which it is.
+    """
+
+    result = asyncio.run(
+        _server(lambda _request: _ok({"items": []})).call_tool("nyx_list_findings", {})
+    )
+
+    payload = json.loads(_text(result))
+    assert payload["operation"] == "list_findings"
+    assert payload["results"] == []
+
+
+def test_absent_record_is_an_explicit_null_not_an_empty_string() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"code": "NOT_FOUND", "message": "Finding not found."})
+
+    result = asyncio.run(
+        _server(handler).call_tool("nyx_get_finding", {"finding_id": "fnd_missing"})
+    )
+
+    payload = json.loads(_text(result))
+    assert payload["operation"] == "get_finding"
+    assert payload["result"] is None
+    assert "error" not in payload
 
 
 def test_server_instructions_forbid_inventing_verdicts() -> None:

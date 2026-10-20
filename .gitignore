@@ -29,6 +29,9 @@ tool-output/
 .agent-prompts/
 .commitmsg-*.txt
 
+# Local scratch databases and probe runs
+tmp/
+
 # OS
 Thumbs.db
 desktop.ini

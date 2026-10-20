@@ -171,3 +171,60 @@ def test_history_is_returned_whole() -> None:
     history = _client(handler).get_history("fnd_1")
 
     assert set(history) == {"finding", "rebuttals", "verification_jobs", "dispositions"}
+
+
+# --- absence and pagination, against the shapes the real API returns ---------
+
+
+def test_get_history_returns_none_when_the_finding_is_absent() -> None:
+    """A missing history must read as "absent", not as a payload-shape failure.
+
+    Found by driving the MCP server against a live NYX: `get_history` returned a body the
+    caller could not distinguish from a broken response. The sentinel is part of the contract.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response(
+            {"code": "NOT_FOUND", "message": "finding does not exist"}, status=404
+        )
+
+    assert _client(handler).get_history("fnd_missing") is None
+
+
+def test_list_critics_reads_the_critics_key() -> None:
+    """`/critics` pages under ``critics``, not ``items`` -- feeding it to `_items` raised.
+
+    This is the defect the live probe found: a healthy 200 response was reported as
+    INVALID_OUTPUT, so `nyx_list_critics` was unusable end-to-end.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url).endswith("/api/v1/critics")
+        return _json_response({"critics": [{"critic_id": "c001"}, {"critic_id": "c002"}]})
+
+    critics = _client(handler).list_critics()
+
+    assert [item["critic_id"] for item in critics] == ["c001", "c002"]
+
+
+def test_list_critics_tolerates_an_empty_pack() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response({"critics": []})
+
+    assert _client(handler).list_critics() == []
+
+
+def test_empty_page_is_an_empty_list_not_a_shape_error() -> None:
+    """A 200 with a null body is "nothing here", not a malformed payload."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response(None)
+
+    assert _client(handler).list_findings() == []
+
+
+def test_empty_history_is_an_empty_dict_not_a_shape_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response(None)
+
+    assert _client(handler).get_history("fnd_1") is None

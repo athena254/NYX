@@ -87,11 +87,15 @@ class NyxClient:
         if response.status_code == 204 or not response.content:
             return None
         try:
-            return response.json()
+            decoded = response.json()
         except ValueError as exc:
             raise NyxClientError(
                 "NYX returned a response that is not JSON", code="INVALID_OUTPUT"
             ) from exc
+        # A 404 body is not the only way an endpoint says "no such record": some routes return
+        # 200 with an explicit null/empty payload. Callers that treat None as "absent" must be
+        # able to rely on it, so the sentinel is normalised here rather than leaked.
+        return None if decoded is None else decoded
 
     # -- systems -----------------------------------------------------------
 
@@ -131,21 +135,38 @@ class NyxClient:
             raise
 
     def list_critics(self) -> list[dict[str, Any]]:
-        """List the registered critics and their declared scope."""
+        """List the registered critics and their declared scope.
+
+        Unlike the other list endpoints, ``/critics`` pages under ``critics`` rather than
+        ``items``; feeding that to :func:`_items` would raise ``INVALID_OUTPUT`` on a
+        perfectly healthy response.
+        """
 
         payload = self._request("GET", "/api/v1/critics")
-        items = _items(payload)
-        return [item for item in items if isinstance(item, dict)]
+        raw = payload.get("critics") if isinstance(payload, dict) else payload
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            raise NyxClientError(
+                "NYX returned an unexpected critics payload", code="INVALID_OUTPUT"
+            )
+        return [item for item in raw if isinstance(item, dict)]
 
     # -- dispute history ---------------------------------------------------
 
-    def get_history(self, finding_id: str) -> dict[str, Any]:
+    def get_history(self, finding_id: str) -> dict[str, Any] | None:
         """Return the full dispute record: finding, rebuttals, verification, dispositions.
 
-        Nothing is omitted -- every record is append-only, so the history is complete.
+        Nothing is omitted -- every record is append-only, so the history is complete. Returns
+        ``None`` when the finding does not exist, like :meth:`get_finding`.
         """
 
-        return _as_dict(self._request("GET", f"/api/v1/findings/{finding_id}/history"))
+        try:
+            return _as_dict(self._request("GET", f"/api/v1/findings/{finding_id}/history"))
+        except NyxClientError as exc:
+            if exc.code == "NOT_FOUND":
+                return None
+            raise
 
     def list_rebuttals(self, finding_id: str) -> list[dict[str, Any]]:
         """List a finding's rebuttals, oldest first."""
@@ -189,10 +210,20 @@ class NyxClient:
     ) -> dict[str, Any]:
         """File a challenge. The rebuttal appends; the finding is not overwritten."""
 
-        outcome = (
+        outcome_value = (
             requested_outcome if isinstance(requested_outcome, str) else requested_outcome.value
         )
-        return _as_dict(
+        try:
+            outcome = RebuttalRequestedOutcome(outcome_value)
+        except ValueError as exc:
+            # A model can send any string here. Refuse it as a typed error rather than letting
+            # NYX answer with a payload-shape message the caller cannot branch on.
+            raise NyxClientError(
+                f"unknown requested_outcome {outcome_value!r}; "
+                f"expected one of {[member.value for member in RebuttalRequestedOutcome]}",
+                code="INVALID_REQUEST",
+            ) from exc
+        return _as_dict_or_unexpected(
             self._request(
                 "POST",
                 f"/api/v1/findings/{finding_id}/rebuttals",
@@ -200,7 +231,7 @@ class NyxClient:
                     "submitted_by": submitted_by,
                     "argument": argument,
                     "evidence_ids": list(evidence_ids or []),
-                    "requested_outcome": outcome,
+                    "requested_outcome": outcome.value,
                 },
             )
         )
@@ -218,7 +249,7 @@ class NyxClient:
         refusal surfaces here as ``VERIFICATION_NOT_PERMITTED``.
         """
 
-        return _as_dict(
+        return _as_dict_or_unexpected(
             self._request(
                 "POST",
                 f"/api/v1/findings/{finding_id}/verification-jobs",
@@ -239,15 +270,42 @@ class NyxClient:
 # --------------------------------------------------------------------------- helpers
 
 
-def _as_dict(value: Any) -> dict[str, Any]:
+def _as_dict(value: Any) -> dict[str, Any] | None:
+    """Return ``value`` as a dict, or ``None`` when NYX said "no such record".
+
+    Callers contract for the absence sentinel. Raising here instead would turn a legitimate
+    "not found" into a payload-shape error with the wrong code, so the caller cannot tell the
+    two apart.
+    """
+
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise NyxClientError("NYX returned an unexpected payload", code="INVALID_OUTPUT")
+    return value
+
+
+def _as_dict_or_unexpected(value: Any) -> dict[str, Any]:
+    """Return ``value`` as a dict, raising on a shape NYX never produces for a successful write.
+
+    The write endpoints return a record or a structured error; a 2xx with no object would be a
+    broken response, not "absent", so it is reported as one.
+    """
+
     if not isinstance(value, dict):
         raise NyxClientError("NYX returned an unexpected payload", code="INVALID_OUTPUT")
     return value
 
 
 def _items(payload: Any) -> list[dict[str, Any]]:
-    """Extract the ``items`` array from a page, tolerating a bare array."""
+    """Extract the ``items`` array from a page, tolerating a bare array.
 
+    An empty store and a missing record both reach this helper; both mean "nothing here", and
+    a caller that filters a list must not have to distinguish them.
+    """
+
+    if payload is None:
+        return []
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
     if isinstance(payload, dict):

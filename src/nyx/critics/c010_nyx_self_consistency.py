@@ -303,6 +303,13 @@ class NyxSelfConsistencyCritic:
     def _violation_result(violations: list[str], context: CriticContext) -> CriticResult:
         """Build the finding that reports the violations (bounded to the result model)."""
 
+        # A finding must reference the claim or event it assesses, or the composer refuses it.
+        # C-010's subject is NYX's own store, and the only inspectable anchor available is the
+        # event that triggered the run -- so the finding cites that. Without this, a store that
+        # genuinely fails self-consistency cannot be reported at all: the composer raises, and
+        # because the raise happens outside the registry's per-critic guard, the whole pack run
+        # fails with a 500 instead of recording the violation.
+        claim_ids = [context.linked_claim.id] if context.linked_claim is not None else []
         return CriticResult(
             critic_id=CRITIC_ID,
             critic_version=CRITIC_VERSION,
@@ -312,6 +319,8 @@ class NyxSelfConsistencyCritic:
                 "stored model."
             ),
             scope=context.scope,
+            event_ids=[context.target_event.id],
+            claim_ids=claim_ids,
             observations=violations[:64],
             limitations=[
                 "This is a check of the stored model's internal consistency, not of the "

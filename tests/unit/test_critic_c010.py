@@ -35,6 +35,7 @@ from nyx.domain.enums import (
 )
 from nyx.domain.events import Event
 from nyx.domain.evidence import EvidenceItem
+from nyx.findings.composer import compose_finding
 from nyx.findings.lifecycle import FindingLifecycle, TransitionRequest
 from nyx.findings.models import CriticRun, Finding, Reasoning, RecommendedAction
 from nyx.storage.db import SessionFactory, session_scope
@@ -70,6 +71,19 @@ def _event() -> Event:
 
 def _context() -> object:
     return build_context(target_event=_event(), now=_NOW)
+
+
+def _scoped_context() -> object:
+    """A context with a narrowed scope, as the registry always builds from a real claim/event.
+
+    ``_context``'s bare system scope is fine for asserting the critic's own result, but the
+    composer rejects a finding whose scope does not narrow beyond the system id -- which is what
+    the registry never hands it.
+    """
+
+    event = _event()
+    event.payload = {"commit": "abc123", "artifact": "demo"}
+    return build_context(target_event=event, now=_NOW)
 
 
 def _add_evidence(session: object) -> EvidenceItem:
@@ -197,6 +211,40 @@ def test_confirmed_finding_without_recorded_transitions_fires(
     assert result.severity is Severity.CRITICAL or result.severity is Severity.HIGH
     observations_text = " ".join(result.observations).lower()
     assert "no lifecycle transition is recorded" in observations_text
+
+
+def test_violation_result_can_be_composed_into_a_finding(session_factory: SessionFactory) -> None:
+    """A C-010 violation must survive finding composition.
+
+    Found by driving the whole critic pack against a live NYX: C-010 returned a ``finding`` result
+    that named no claim or event, so the composer rejected it. The rejection happened *outside*
+    the registry's per-critic guard, so one inconsistent store turned a routine pack run into a
+    500 -- the very condition C-010 exists to report became un-reportable.
+    """
+
+    with session_scope(session_factory) as session:
+        evidence = _add_evidence(session)
+        _persist_finding(session, status=FindingStatus.CONFIRMED, supporting=(evidence.id,))
+
+    result = NyxSelfConsistencyCritic(session_factory).run(_scoped_context())  # type: ignore[arg-type]
+    assert result.result is CriticResultStatus.FINDING
+
+    with session_scope(session_factory) as session:
+        run = CriticRunRepository(session).add(
+            CriticRun(
+                critic_id=result.critic_id,
+                critic_version=result.critic_version,
+                input_refs=["clm_c010_test"],
+                started_at=_NOW,
+                completed_at=_NOW,
+                result=result.result,
+                rationale=result.rationale,
+            )
+        )
+        finding = compose_finding(session, result=result, run=run)
+
+    assert finding.id
+    assert result.event_ids or result.claim_ids
 
 
 # ---------------------------------------------------------------------------

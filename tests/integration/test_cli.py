@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from nyx.cli.main import app
@@ -15,6 +16,13 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 
 def _env(tmp_path: Path, database: Path) -> dict[str, str]:
+    """Environment for a CLI invocation, with NYX settings under the test's control.
+
+    The OS environment is stripped of ``NYX_*`` so a developer's real settings cannot leak in.
+    The ``.env`` *file* is handled by the caller: pydantic-settings reads it relative to the
+    working directory, so the CLI tests chdir to an empty directory (see ``test_cli_*``).
+    """
+
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith("NYX_")}
     env["NYX_DATABASE_URL"] = f"sqlite:///{database.as_posix()}"
     env["NYX_DATA_DIR"] = str(tmp_path)
@@ -94,9 +102,14 @@ def test_cli_batch_exits_non_zero_when_any_item_is_rejected(tmp_path: Path, data
     assert payload["results"][1]["reason"] == "SCHEMA_VALIDATION_FAILED"
 
 
-def test_cli_doctor_passes_on_a_migrated_database(tmp_path: Path, database: Path) -> None:
+def test_cli_doctor_passes_on_a_migrated_database(
+    tmp_path: Path, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     runner = CliRunner()
     env = _env(tmp_path, database)
+    # pydantic-settings reads `.env` relative to the working directory; run from an empty one so
+    # the developer's own NYX_* settings cannot turn "no optional integrations" into a failure.
+    monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["doctor", "--json"], env=env)
 
