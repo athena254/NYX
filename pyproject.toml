@@ -40,7 +40,10 @@ packages = ["src/nyx"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-q"
+# importlib mode lets two test files share a basename in different directories
+# (tests/unit/test_finding_lifecycle.py and tests/integration/test_finding_lifecycle.py, both
+# named by the acceptance table) without __init__.py files.
+addopts = "-q --import-mode=importlib"
 
 [tool.ruff]
 line-length = 100

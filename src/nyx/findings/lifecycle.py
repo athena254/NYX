@@ -33,7 +33,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Protocol
 
-from pydantic import StringConstraints
+from pydantic import Field, StringConstraints
 from sqlalchemy.orm import Session
 
 from nyx.audit.writer import AuditEntryInput, AuditWriter
@@ -42,6 +42,7 @@ from nyx.domain.enums import AuditOutcome, FindingStatus, VerificationResult
 from nyx.error_codes import ErrorCode
 from nyx.findings.models import Finding, RationaleText
 from nyx.storage.repositories.findings import FindingRepository
+from nyx.storage.repositories.rebuttals import RebuttalRepository
 from nyx.storage.tables import FindingRow
 
 # ---------------------------------------------------------------------------
@@ -151,6 +152,16 @@ class TransitionRequest(NyxModel):
     other disposition outcomes). ``verification_result`` / ``waiver`` are
     closure evidence; ``rebuttal_bypass_policy`` is the documented policy that
     permits skipping rebuttal; ``duplicate_of`` names the original finding.
+
+    The dispute fields record *why* a move was made, so the audit trail and the
+    disposition chain are self-explaining:
+
+    * ``rebuttal_id`` -- the challenge this move answers, if any.
+    * ``counterevidence_ids`` -- evidence weighed. Appended to the finding's own
+      ``counterevidence_ids`` (never removed), so a finding accumulates every
+      piece of counterevidence it was challenged with.
+    * ``verification_job_ids`` -- the verification runs that informed the move.
+    * ``policy_version`` -- the policy version in force when it was made.
     """
 
     finding_id: Identifier
@@ -164,6 +175,10 @@ class TransitionRequest(NyxModel):
         Annotated[str, StringConstraints(min_length=1, max_length=256)] | None
     ) = None
     duplicate_of: Identifier | None = None
+    rebuttal_id: Identifier | None = None
+    counterevidence_ids: list[Identifier] = Field(default_factory=list, max_length=256)
+    verification_job_ids: list[Identifier] = Field(default_factory=list, max_length=64)
+    policy_version: Annotated[str, StringConstraints(min_length=1, max_length=256)] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -294,10 +309,10 @@ _CAPABILITY_REQUIREMENTS: dict[FindingStatus, Capability] = {
     FindingStatus.EXPIRED: Capability.ADMINISTER,
 }
 
-TransitionRule = Callable[[Finding, TransitionRequest], None]
+TransitionRule = Callable[[Session, Finding, TransitionRequest], None]
 
 
-def _requires_rationale(finding: Finding, request: TransitionRequest) -> None:
+def _requires_rationale(session: Session, finding: Finding, request: TransitionRequest) -> None:
     """A disposition outcome must record why it was reached."""
     if not request.rationale:
         raise InvalidLifecycleTransitionError(
@@ -305,7 +320,9 @@ def _requires_rationale(finding: Finding, request: TransitionRequest) -> None:
         )
 
 
-def _requires_supporting_evidence(finding: Finding, request: TransitionRequest) -> None:
+def _requires_supporting_evidence(
+    session: Session, finding: Finding, request: TransitionRequest
+) -> None:
     """Safety invariant 1 (SPEC §3.2): confirmed/partially_confirmed need evidence.
 
     Shared by both positive verdicts: a partial confirmation is still a positive
@@ -322,14 +339,18 @@ def _requires_supporting_evidence(finding: Finding, request: TransitionRequest) 
         )
 
 
-def _requires_duplicate_target(finding: Finding, request: TransitionRequest) -> None:
+def _requires_duplicate_target(
+    session: Session, finding: Finding, request: TransitionRequest
+) -> None:
     if not request.duplicate_of:
         raise InvalidLifecycleTransitionError(
             "a transition to 'duplicate' must name the original finding via duplicate_of"
         )
 
 
-def _closed_requires_verification_or_waiver(finding: Finding, request: TransitionRequest) -> None:
+def _closed_requires_verification_or_waiver(
+    session: Session, finding: Finding, request: TransitionRequest
+) -> None:
     """SPEC §6: closure requires a verification result or an authorised waiver."""
     if request.verification_result is None and request.waiver is None:
         raise InvalidLifecycleTransitionError(
@@ -338,7 +359,9 @@ def _closed_requires_verification_or_waiver(finding: Finding, request: Transitio
         )
 
 
-def _bypass_requires_documented_policy(finding: Finding, request: TransitionRequest) -> None:
+def _bypass_requires_documented_policy(
+    session: Session, finding: Finding, request: TransitionRequest
+) -> None:
     """SPEC §6: skipping rebuttal is allowed only under a documented policy.
 
     The bypass must be recorded, not silent: the policy name travels in the
@@ -351,12 +374,47 @@ def _bypass_requires_documented_policy(finding: Finding, request: TransitionRequ
         )
 
 
+def _challenged_verdict_requires_counterevidence(
+    session: Session, finding: Finding, request: TransitionRequest
+) -> None:
+    """A challenged finding cannot be dismissed without naming what was weighed.
+
+    SPEC §6 requires ``rejected`` to explain which premise failed and
+    ``inconclusive`` to be a real outcome rather than a silent conversion. When a
+    finding has actually been challenged, those two outcomes are answers to a
+    challenge, so the counterevidence that drove the answer must be recorded --
+    otherwise a submitter's rebuttal is dismissed without a trace of what was
+    considered.
+
+    This is deliberately scoped to findings that have a rebuttal. An
+    unchallenged finding can still be rejected on its own terms (the evidence
+    was misread, the critic was wrong) with no counterevidence, and requiring it
+    there would force a meaningless field.
+    """
+
+    if request.target_status not in (FindingStatus.REJECTED, FindingStatus.INCONCLUSIVE):
+        return
+    if request.counterevidence_ids:
+        return
+    if not RebuttalRepository(session).list(finding_id=finding.id):
+        return
+    raise InvalidLifecycleTransitionError(
+        f"a challenged finding may not be moved to '{request.target_status.value}' "
+        "without recording the counterevidence that was weighed; a rebuttal is an "
+        "answerable challenge, not a formality"
+    )
+
+
 _RULES: dict[FindingStatus, tuple[TransitionRule, ...]] = {
     FindingStatus.CONFIRMED: (_requires_rationale, _requires_supporting_evidence),
     FindingStatus.PARTIALLY_CONFIRMED: (_requires_rationale, _requires_supporting_evidence),
     # SPEC §6: rejected requires an explanation of which premise failed or what
-    # counterevidence prevailed -- enforced as a mandatory recorded rationale.
-    FindingStatus.REJECTED: (_requires_rationale,),
+    # counterevidence prevailed -- enforced as a mandatory recorded rationale,
+    # and, once the finding has been challenged, as recorded counterevidence.
+    FindingStatus.REJECTED: (_requires_rationale, _challenged_verdict_requires_counterevidence),
+    # SPEC §6: inconclusive is a real outcome and must not be silently converted;
+    # when it answers a challenge, the counterevidence weighed is mandatory too.
+    FindingStatus.INCONCLUSIVE: (_requires_rationale, _challenged_verdict_requires_counterevidence),
     FindingStatus.REMEDIATION_PENDING: (_requires_rationale,),
     FindingStatus.WITHDRAWN: (_requires_rationale,),
     FindingStatus.ACCEPTED_RISK: (_requires_rationale,),
@@ -378,6 +436,7 @@ def allowed_transitions(status: FindingStatus) -> frozenset[FindingStatus]:
 
 
 def validate_transition(
+    session: Session,
     finding: Finding,
     request: TransitionRequest,
     checker: CapabilityChecker,
@@ -404,9 +463,9 @@ def validate_transition(
         )
 
     for rule in _EDGE_RULES.get((finding.status, target), ()):
-        rule(finding, request)
+        rule(session, finding, request)
     for rule in _RULES.get(target, ()):
-        rule(finding, request)
+        rule(session, finding, request)
 
 
 def _audit_reason(
@@ -428,6 +487,14 @@ def _audit_reason(
             f"closure waiver authorised by '{request.waiver.authorised_by}': "
             f"{request.waiver.reason}"
         )
+    if request.rebuttal_id is not None:
+        parts.append(f"answers rebuttal {request.rebuttal_id}")
+    if request.counterevidence_ids:
+        parts.append(f"counterevidence weighed: {', '.join(request.counterevidence_ids)}")
+    if request.verification_job_ids:
+        parts.append(f"verification jobs: {', '.join(request.verification_job_ids)}")
+    if request.policy_version is not None:
+        parts.append(f"policy version {request.policy_version}")
     return "; ".join(parts)[:2000]
 
 
@@ -466,7 +533,7 @@ class FindingLifecycle:
         if finding is None:
             raise FindingNotFoundError(f"finding '{request.finding_id}' does not exist")
 
-        validate_transition(finding, request, self._capability_checker)
+        validate_transition(self._session, finding, request, self._capability_checker)
 
         previous = finding.status
         now = self._clock()
@@ -479,6 +546,13 @@ class FindingLifecycle:
         row.updated_at = now
         if request.duplicate_of is not None:
             row.duplicate_of = request.duplicate_of
+        if request.counterevidence_ids:
+            # Append-only: a finding accumulates every piece of counterevidence it
+            # was challenged with. Nothing is ever removed from this list.
+            row.counterevidence_ids = list(
+                dict.fromkeys([*row.counterevidence_ids, *request.counterevidence_ids])
+            )
+            finding.counterevidence_ids = list(row.counterevidence_ids)
         self._session.flush()
 
         self._audit_writer.append(
