@@ -372,16 +372,19 @@ model confidence as calibrated probability without separate calibration, or auto
 
 **Status:** planned (20 October 2026). See `docs/implementation/conversational-interface-plan.md`.
 
-**Deliverable:** a standalone conversational front-end for NYX, with the CLI as the machine
-interface for other systems.
+**Deliverable:** a conversational front-end for NYX, living in the NYX repository as a separate
+independent unit, with the CLI as the machine interface for other systems. The default LLM backend
+is the dmr-X inference gateway, consumed over HTTP.
 
 **Work items**
 
 - [ ] Harden the CLI for other systems: `--json` and exit codes on every command, contract-tested.
 - [ ] NYX MCP server exposing NYX's operations as tools (read and write), with no tool that can
       create a finding or record a disposition.
-- [ ] LLM provider adapter: OpenAI-compatible `base_url` + `api_key` + `model`, ported from the
-      proven pattern in The-Agency's `agency/llm/`.
+- [ ] LLM provider adapter: two protocols (OpenAI-compatible `/v1/chat/completions` and Anthropic
+      `/v1/messages`) behind one interface, so any Anthropic or OpenAI-compatible LLM works.
+- [ ] dmr-X as the default inference backend, called over HTTP — dmr-X holds the API keys, so NYX
+      needs none. Its code is not vendored; both projects stay independent.
 - [ ] Conversational front-end: an interactive CLI chat first, then a Telegram bot.
 - [ ] Provider-failure, timeout, and prompt-injection handling.
 
