@@ -1,8 +1,8 @@
 # Acceptance tests — SPEC §17.2
 
 All 24 acceptance scenarios are listed below. A box may be checked only when the named test exists,
-is run in CI or locally, and passes against the implementation. After the Phase 1b run, scenarios 1,
-2, 3, 14, and 18 are checked with the exact tests named below; all others remain unchecked.
+is run in CI or locally, and passes against the implementation. After the Phase 2b run, scenarios 1–9,
+12, 14, and 18 are checked with the exact tests named below; all others remain unchecked.
 
 **Ownership rule:** the phase column is the first phase that must satisfy the scenario. A scenario
 marked “re-validated” must still pass in the later phase, but the earlier phase owns the first passing
