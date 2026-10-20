@@ -42,14 +42,16 @@ class PolicyVersionRepository:
     def list(
         self, *, rule_id: str | None = None, changed_by: str | None = None, limit: int = 100
     ) -> list[PolicyVersion]:
+        """Return recorded changes, newest first -- the natural read for a change history."""
+
         statement = select(PolicyVersionRow)
         if rule_id is not None:
             statement = statement.where(PolicyVersionRow.rule_id == rule_id)
         if changed_by is not None:
             statement = statement.where(PolicyVersionRow.changed_by == changed_by)
-        statement = statement.order_by(PolicyVersionRow.changed_at, PolicyVersionRow.id).limit(
-            limit
-        )
+        statement = statement.order_by(
+            PolicyVersionRow.changed_at.desc(), PolicyVersionRow.id.desc()
+        ).limit(limit)
         return [_to_domain(row) for row in self._session.scalars(statement)]
 
     def latest(self, rule_id: str) -> PolicyVersion | None:

@@ -32,7 +32,7 @@ from nyx.domain.enums import CriticResultStatus
 from nyx.domain.events import Event
 from nyx.domain.evidence import EvidenceItem
 from nyx.findings.composer import compose_finding
-from nyx.findings.models import CriticRun
+from nyx.findings.models import CriticRun, Finding
 from nyx.ingestion.redaction import redact
 from nyx.storage.repositories.claims import ClaimRepository
 from nyx.storage.repositories.critic_runs import CriticRunRepository
@@ -67,6 +67,22 @@ class CriticRunOutcome:
     proposition: str
     rationale: str
     finding_id: str | None = None
+
+
+@dataclass(frozen=True)
+class RerunOutcome:
+    """One critic's result when re-run for verification.
+
+    ``run_id`` is the new ``CriticRun`` row. The original run is never touched, so the audit trail
+    shows both what the critic concluded when it raised the finding and what it concluded on
+    re-examination.
+    """
+
+    critic_id: str
+    critic_version: str
+    result: CriticResultStatus
+    rationale: str
+    run_id: str
 
 
 def register(critic: Critic) -> None:
@@ -164,6 +180,86 @@ def run_selected(
                 proposition=result.proposition,
                 rationale=result.rationale,
                 finding_id=finding_id,
+            )
+        )
+    return outcomes
+
+
+def rerun_for_verification(
+    session: Session,
+    *,
+    finding: Finding,
+    clock: Callable[[], datetime] = utc_now,
+) -> list[RerunOutcome]:
+    """Re-run the critics that produced ``finding``, recording a new run for each.
+
+    Verification must not be a silent re-assertion of the original conclusion, so this persists a
+    fresh ``CriticRun`` per critic -- linked to the existing finding, but a separate row -- and does
+    **not** compose a second finding. The original run is left untouched, so the two conclusions
+    stay comparable.
+
+    The critics are re-run against the finding's source event, which is where the evidence they
+    assess lives. If the finding names no retrievable source event there is nothing to re-examine,
+    and that is reported as an error rather than quietly returning an empty success.
+
+    Note on independence: re-running the critic that raised the finding is *not* independent
+    corroboration. It establishes whether the finding still reproduces, which is a weaker and
+    different claim. Callers must not present it as independent verification.
+    """
+
+    linked = CriticRunRepository(session).list(finding_id=finding.id)
+    critic_ids = sorted({run.critic_id for run in linked})
+    if not critic_ids:
+        raise CriticRegistryError(
+            f"finding {finding.id!r} has no linked critic runs, so there is nothing to re-run"
+        )
+
+    event: Event | None = None
+    for event_id in finding.event_ids:
+        candidate = EventRepository(session).get(event_id)
+        if candidate is not None:
+            event = candidate
+            break
+    if event is None:
+        raise CriticRegistryError(
+            f"finding {finding.id!r} names no retrievable source event, so its critics cannot be "
+            "re-run against current records"
+        )
+
+    context = _build_context(session, event, now=clock())
+    outcomes: list[RerunOutcome] = []
+    for critic_id in critic_ids:
+        critic = get(critic_id)
+        started_at = clock()
+        failure_details: str | None = None
+        try:
+            result = critic.run(context)
+        except Exception as exc:  # noqa: BLE001 - record the failure, redacted, and continue
+            result = _error_result(critic, exc, context)
+            failure_details = _redact_failure(exc)
+        completed_at = clock()
+
+        run = CriticRun(
+            critic_id=critic.critic_id,
+            critic_type=critic.critic_type,
+            critic_version=critic.critic_version,
+            input_refs=_input_refs(context),
+            input_hashes=_input_hashes(context),
+            started_at=started_at,
+            completed_at=completed_at,
+            result=result.result,
+            rationale=result.rationale,
+            failure_details=failure_details,
+            finding_id=finding.id,
+        )
+        CriticRunRepository(session).add(run)
+        outcomes.append(
+            RerunOutcome(
+                critic_id=critic.critic_id,
+                critic_version=critic.critic_version,
+                result=result.result,
+                rationale=result.rationale,
+                run_id=run.id,
             )
         )
     return outcomes
