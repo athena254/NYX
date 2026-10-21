@@ -62,6 +62,29 @@ Three constraints shape the decision:
   reads refs and the reflog, not git objects, so it cannot read commit contents, file lists, or
   diffs.
 
+## Unlinked evidence (SPEC §5.4 deviation)
+
+SPEC §5.4 lists `relevance_to_claim` or `relevance_to_finding` as a required evidence field.
+SPEC §14 requires a Git/CI adapter that observes a CI run. Those two cannot both hold
+literally: an adapter fetches a run *before* any claim references it, so at registration the
+evidence has no claim to point at.
+
+Emitting a claim from the same CI run was considered and rejected — it would make C-001
+assess a claim against evidence from its own source, which SPEC §8 explicitly warns is not
+independent corroboration.
+
+**Resolution:** `EvidenceItem._require_source_and_relevance` now accepts a third state —
+neither relevance target, but a `relevance_note` explaining why. The original refusal is
+intact for a producer that simply omits the field; unlinked evidence must *say it is
+unlinked*. No column changed, no schema changed, and the adapter states the reason in the
+record rather than leaving a reader to infer it.
+
+This was found by a probe written outside the project's test helpers
+(`tmp/probes/probe_git_ci_adapter.py`), not by slice 5.2's 20 unit tests: those asserted that
+`normalize()` returns valid Pydantic input models, and never pushed the result through the
+real ingestion path against a migrated database. **A module's tests were written by whoever
+wrote the module** — the probe is what caught it.
+
 ## Consequences
 
 - An adapter inherits redaction, validation, deduplication, and audit for free, and a new adapter

@@ -77,6 +77,18 @@ class EvidenceItem(NyxModel):
     def _require_source_and_relevance(self) -> Self:
         if self.source_system_id is None and self.source_name is None:
             raise ValueError("evidence must name a source_system_id or a source_name")
-        if self.relevance_to_claim is None and self.relevance_to_finding is None:
-            raise ValueError("evidence must declare relevance_to_claim or relevance_to_finding")
+        if (
+            self.relevance_to_claim is None
+            and self.relevance_to_finding is None
+            and not self.relevance_note
+        ):
+            # A note is the escape hatch, not a loophole: evidence that is genuinely
+            # unlinked must *say so*. SPEC §5.4 asks for relevance_to_claim or finding;
+            # SPEC §14 asks for an adapter that observes before any claim exists. The two
+            # are reconciled here rather than by weakening one of them silently -- see
+            # docs/adr/0008, "Unlinked evidence".
+            raise ValueError(
+                "evidence must declare relevance_to_claim or relevance_to_finding, or carry "
+                "a relevance_note explaining why it is not linked yet"
+            )
         return self

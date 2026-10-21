@@ -265,13 +265,13 @@ class GitCiAdapter:
 | External thing | NYX record | Concrete field mapping |
 | --- | --- | --- |
 | Repository `owner/name` | **`MonitoredSystem`** | `name` = repository, `kind` = `repository`, `environment` = `staging`/`production` from config, `owner` = the repo owner, `adapter` = `http`, `capabilities` = `["events.write", "findings.read"]`. `metadata` carries **no** token and no `api_base_url` credential. |
-| Commit SHA | **`Scope.commit`** | Set on the event's `Scope` and on the evidence's `Scope` — this is the field C-001 compares (`c001_completion_vs_verification.py:108,347-352`). |
+| Commit SHA | **`Scope.commit`** | Set on the evidence's `Scope` — this is the field C-001 compares (`c001_completion_vs_verification.py:108,347-352`). **The event carries it in `payload["commit"]` instead:** `EventInput` (`src/nyx/ingestion/inputs.py:66-88`) has no `scope` field, so the plan's original wording was not literally implementable. Corrected here. |
 | Workflow / check-run id | **`Event.idempotency` producer key** | `producer_event_id` = `"gh:{owner}/{repo}:check:{id}"` or `"gh:{owner}/{repo}:run:{id}"`. Stable across refetches, so a re-run is `DUPLICATE_EVENT`, not a second record. |
 | Check run / Actions run | **`Event`** | `event_type` = `ci.check.completed` or `ci.workflow.completed` (matches `EventType`'s `^[a-z0-9]+(\.[a-z0-9][a-z0-9_-]*)+$`), `correlation_id` = the external run id, `actor` = the GitHub actor (`PrincipalRef`, `kind=tool`), `trust_class` = `observed` (a CI record establishes the recorded event, not the truth of the claim — SPEC §6). |
 | Run conclusion (`success`/`failure`/`neutral`/`cancelled`) | **`EvidenceItem`** | `kind` = `ci_test_result`, `title` = the job name, `description` = the conclusion + suite, `source_ref` = the run's `html_url`, `locator` = `job:{name}`, `integrity_method` = `hash`, `scope.commit` = the run's head SHA, `sensitivity` = `internal`, `access_policy_ref` = `evidence:internal` (a known value — see the boundary note below), `retention_class` = `standard`. |
 | PR merge / review decision | **`EvidenceItem`** | `kind` = `review_record` (already in `EvidenceKind`). |
 | Artifact digest | **`EvidenceItem`** | `kind` = `artifact_digest`, `content_hash` set to the digest the host reported. |
-| Critic output | **nothing** | The adapter never creates a finding, a claim, or a disposition. It produces *inputs*. C-001 and the other critics consume them. |
+| **Critic output** | **nothing** | The adapter never creates a finding or a disposition. It produces *inputs*: an event and an evidence item per run. **It does not emit a claim** — a claim synthesized from the same CI run would make C-001 assess a claim against evidence from its own source, which SPEC §8 warns is not independent corroboration. |
 
 **Why this is the right mapping.** C-001 already compares a claim's `scope.commit` against the
 `scope.commit` of linked `test_result` / `ci_test_result` evidence, and already reads a pass/fail
@@ -336,6 +336,12 @@ then cannot write.
 ---
 
 ### Slice 5.0 — shared adapter infrastructure (orchestrator)
+
+**Status: landed, commit `c0bc402`.** Gates: `uv run pytest` 565 passed / 1 skipped · `uv run mypy`
+clean (122 files) · `uv run ruff check .` clean · `uv run ruff format --check .` 198 files ·
+`uv run alembic upgrade head` clean · `docs/openapi.json` unchanged.
+
+Four deliberate deviations from §2 are recorded below.
 
 **Deliverables**
 
@@ -476,6 +482,12 @@ report it rather than "fixing" it with a session parameter.
 
 ### Slice 5.1 — GitHub CI client and configuration
 
+**Status: landed.** `GitHubCiClient` (233 lines) + `GitCiConfig` (61) + `__init__` + 8 tests.
+Independently probed over a real socket by `tmp/probes/probe_git_ci_adapter.py`: the token
+reaches the stub server in the `Authorization` header and nowhere else, no query string is sent,
+a 401 is `unauthorized` with the token absent from the message, and a private host is refused
+with zero requests recorded. Boundary grep (G7) and the security allowlist gate both pass.
+
 **Deliverables**
 
 - `src/nyx/adapters/git_ci/__init__.py` — exports `GitCiConfig`, `GitCiError`, `GitHubCiClient`.
@@ -565,6 +577,19 @@ construction.
 ---
 
 ### Slice 5.2 — normalization
+
+**Status: landed.** `normalize.py` (646 lines) + 20 tests.
+
+**Three corrections to this plan, all found while building or probing:**
+
+1. **`EventInput` has no `scope` field** (`src/nyx/ingestion/inputs.py:66-88`), so §2.4's "set the
+   head SHA on the event's `Scope`" was not literally implementable. The event carries it in
+   `payload["commit"]`; the evidence carries it on `Scope.commit`, which is what C-001 reads.
+2. **The event and the evidence must have distinct `producer_event_id`s.** Sharing one would make
+   the evidence's ingestion a spurious `DUPLICATE_EVENT`.
+3. **The adapter's evidence could not be stored at all** — see ADR 0008, "Unlinked evidence".
+   `EvidenceItem` refused it, and slice 5.2's 20 unit tests did not catch it because they never
+   pushed the output through the real ingestion path.
 
 **Deliverables**
 
