@@ -8,6 +8,9 @@ repository. `docs/SPEC.md` is the implementation contract; `docs/` holds the der
 1. `docs/SPEC.md` — Part I is research rationale, Part II is the implementation contract.
 2. `docs/architecture.md`, `docs/threat-model.md`, `docs/adr/` — once they exist.
 3. `docs/implementation/roadmap.md` — the phase plan and current status.
+4. `docs/implementation/phase-4-plan.md` — the active phase's plan, with per-slice file ownership.
+   Two files are orchestrator-only (`src/nyx/api/app.py`, `src/nyx/cli/main.py`); a delegated slice
+   delivers modules and tests, and the orchestrator wires them.
 
 ## Hard rules
 

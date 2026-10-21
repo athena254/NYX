@@ -87,6 +87,34 @@ class Settings(BaseSettings):
     telegram_actor_prefix: str = "telegram:"
     audit_verify_on_startup: bool = True
 
+    # --- Phase 4: security and operational hardening -------------------------------
+    # Authentication and authorisation. `auth_principals` is a JSON list of
+    # {"principal_id": str, "api_key_env": str, "capabilities": [str]}. The raw key is read from
+    # the named environment variable, so a secret never lives in this configuration.
+    # `auth_api_key` remains the single-operator-key case; either one satisfies auth_mode='api_key'.
+    auth_principals: list[dict[str, Any]] = Field(default_factory=list)
+
+    # API rate limiting. In-memory and per-process; a multi-process deployment needs a shared
+    # store, which is a deployment concern documented in docs/operations.md.
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = Field(default=120, ge=1)
+    rate_limit_window_seconds: float = Field(default=60.0, gt=0)
+    rate_limit_exempt_paths: list[str] = Field(
+        default_factory=lambda: ["/api/v1/health", "/api/v1/ready"]
+    )
+
+    # Evidence URL and locator policy. Both default to the safe side: a URL that resolves to a
+    # private target is refused, and a locator outside the data directory is refused.
+    evidence_allow_private_urls: bool = False
+    evidence_allow_absolute_locators: bool = False
+
+    # Retention. Purge is destructive, so it is opt-in; legal_hold records are never purged.
+    retention_purge_enabled: bool = False
+    retention_ephemeral_days: int = Field(default=7, ge=1)
+    retention_standard_days: int = Field(default=90, ge=1)
+    retention_extended_days: int = Field(default=365, ge=1)
+    retention_derived_metadata_days: int = Field(default=730, ge=1)
+
     @model_validator(mode="after")
     def _check_safe_auth_boundary(self) -> Self:
         if self.host not in _LOOPBACK_HOSTS and self.auth_mode == "none":
@@ -94,8 +122,27 @@ class Settings(BaseSettings):
                 "refusing to bind a non-loopback host with auth_mode='none'; "
                 "set NYX_AUTH_MODE explicitly before exposing NYX"
             )
-        if self.auth_mode == "api_key" and self.auth_api_key is None:
-            raise ValueError("auth_mode='api_key' requires NYX_AUTH_API_KEY to be set")
+        if self.auth_mode == "api_key" and self.auth_api_key is None and not self.auth_principals:
+            raise ValueError(
+                "auth_mode='api_key' requires NYX_AUTH_API_KEY or NYX_AUTH_PRINCIPALS to be set; "
+                "NYX refuses to expose an authenticated surface with no principal"
+            )
+        for principal in self.auth_principals:
+            if not isinstance(principal, dict) or not principal.get("principal_id"):
+                raise ValueError(
+                    "each NYX_AUTH_PRINCIPALS entry must be an object with a non-empty "
+                    "'principal_id' key"
+                )
+            if not principal.get("api_key_env"):
+                raise ValueError(
+                    f"NYX_AUTH_PRINCIPALS entry {principal.get('principal_id')!r} must name the "
+                    "environment variable holding its key via 'api_key_env'"
+                )
+            if not principal.get("capabilities"):
+                raise ValueError(
+                    f"NYX_AUTH_PRINCIPALS entry {principal.get('principal_id')!r} must list at "
+                    "least one capability"
+                )
         if self.llm_enabled and not self.llm_model:
             raise ValueError(
                 "NYX_LLM_ENABLED=true requires NYX_LLM_MODEL to be set; "
