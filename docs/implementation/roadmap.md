@@ -17,7 +17,7 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | 4 | Security and operational hardening | not started | 13, 14, 15, 16, 17, 18, 19, 20 |
 | 5 | Integrations | not started | No numbered scenarios; adapter contract tests and independent disablement |
 | 6 | Optional model critics and calibration | not started | 19 (re-validated with model critics) plus evaluation-corpus thresholds |
-| 7 | Conversational interface | planned | No numbered scenarios; the chat cannot create a finding or record a disposition |
+| 7 | Conversational interface | in progress | No numbered scenarios; the chat cannot create a finding or record a disposition |
 
 Scenarios 14 and 18 are first gated in Phase 1 and re-validated in Phase 4. Scenario 19 is first
 gated in Phase 4 for safe failure handling and re-validated in Phase 6 with an actual LLM adapter.
@@ -370,7 +370,8 @@ model confidence as calibrated probability without separate calibration, or auto
 
 ## Phase 7 — Conversational interface
 
-**Status:** planned (20 October 2026). See `docs/implementation/conversational-interface-plan.md`.
+**Status:** in progress (21 October 2026). See `docs/implementation/conversational-interface-plan.md`.
+Slices 6.1, 6.2, 6.3, and the CLI half of 6.4 are done; 6.6 is done.
 
 **Deliverable:** a conversational front-end for NYX, living in the NYX repository as a separate
 independent unit, with the CLI as the machine interface for other systems. The default LLM backend
@@ -378,15 +379,18 @@ is the dmr-X inference gateway, consumed over HTTP.
 
 **Work items**
 
-- [ ] Harden the CLI for other systems: `--json` and exit codes on every command, contract-tested.
-- [ ] NYX MCP server exposing NYX's operations as tools (read and write), with no tool that can
-      create a finding or record a disposition.
-- [ ] LLM provider adapter: two protocols (OpenAI-compatible `/v1/chat/completions` and Anthropic
+- [x] Harden the CLI for other systems: `--json` and exit codes on every command, contract-tested.
+      `tests/integration/test_cli_contract.py` (12 tests) asserts the surface; `docs/CLI-CONTRACT.md`
+      documents it. Three defects found and fixed, one in the deterministic core.
+- [x] NYX MCP server exposing NYX's operations as tools (read and write), with no tool that can
+      create a finding or record a disposition. 12 tools, live-verified over stdio.
+- [x] LLM provider adapter: two protocols (OpenAI-compatible `/v1/chat/completions` and Anthropic
       `/v1/messages`) behind one interface, so any Anthropic or OpenAI-compatible LLM works.
-- [ ] dmr-X as the default inference backend, called over HTTP — dmr-X holds the API keys, so NYX
+- [x] dmr-X as the default inference backend, called over HTTP — dmr-X holds the API keys, so NYX
       needs none. Its code is not vendored; both projects stay independent.
-- [ ] Conversational front-end: an interactive CLI chat first, then a Telegram bot.
-- [ ] Provider-failure, timeout, and prompt-injection handling.
+- [~] Conversational front-end: `nyx chat` (interactive CLI) is **done**. The Telegram bot is the
+      remaining half of this item.
+- [x] Provider-failure, timeout, and prompt-injection handling.
 
 **Exit criteria:** a user can ask about stored findings and get an answer citing real finding IDs;
 can file a rebuttal and request verification by chatting; and **no code path exists** by which the

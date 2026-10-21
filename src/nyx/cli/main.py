@@ -101,10 +101,28 @@ def main() -> None:
 # --------------------------------------------------------------------------- helpers
 
 
-def _read_raw(path: str | None) -> bytes:
+def _read_raw(path: str | None, json_output: bool) -> bytes:
+    """Read a command's input file, or stdin for ``-``.
+
+    A missing file is reported as a structured error with a non-zero exit, not a traceback: the
+    CLI is a machine interface, and a caller that cannot open the file needs the same code it
+    would get for a malformed one.
+    """
+
     if path is None or path == "-":
         return sys.stdin.buffer.read()
-    return Path(path).read_bytes()
+    try:
+        return Path(path).read_bytes()
+    except OSError as exc:
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.INVALID_REQUEST.value,
+                message=f"could not read input file {path!r} ({type(exc).__name__})",
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1) from exc
 
 
 def _load_json(raw: bytes, json_output: bool) -> Any:
@@ -209,7 +227,7 @@ def system_register(
 ) -> None:
     """Register a monitored system from a manifest file."""
 
-    raw = _read_raw(manifest)
+    raw = _read_raw(manifest, json_output)
     result = _service().register_system(raw, request_id=new_request_id())
     _finish(result, json_output)
 
@@ -245,7 +263,7 @@ def ingest_event(
 ) -> None:
     """Ingest a single event from a file or stdin."""
 
-    raw = _read_raw(source)
+    raw = _read_raw(source, json_output)
     result = _service().ingest_event(
         raw, request_id=new_request_id(), idempotency_key=idempotency_key
     )
@@ -259,7 +277,7 @@ def ingest_batch(
 ) -> None:
     """Ingest a batch of events; one bad item does not fail the batch."""
 
-    raw = _read_raw(source)
+    raw = _read_raw(source, json_output)
     document = _load_json(raw, json_output)
     payloads = document.get("events") if isinstance(document, dict) else document
     if not isinstance(payloads, list):
@@ -324,7 +342,7 @@ def claim_add(
 ) -> None:
     """Register a claim from a file or stdin."""
 
-    raw = _read_raw(source)
+    raw = _read_raw(source, json_output)
     result = _service().register_claim(
         raw, request_id=new_request_id(), idempotency_key=idempotency_key
     )
@@ -339,7 +357,7 @@ def evidence_add(
 ) -> None:
     """Register an evidence item from a file or stdin."""
 
-    raw = _read_raw(source)
+    raw = _read_raw(source, json_output)
     result = _service().register_evidence(
         raw, request_id=new_request_id(), idempotency_key=idempotency_key
     )
@@ -673,7 +691,7 @@ def finding_rebut(
 ) -> None:
     """Challenge a finding. The rebuttal appends to history; the finding is not overwritten."""
 
-    document = _load_json(_read_raw(source), json_output)
+    document = _load_json(_read_raw(source, json_output), json_output)
     if not isinstance(document, dict):
         _dispute_error(
             ErrorCode.INVALID_REQUEST, "Rebuttal input must be a JSON object.", json_output
@@ -923,9 +941,27 @@ def chat_shell(
 
 
 def _require_llm() -> None:
-    """Refuse to start if the LLM is not configured, with an actionable message."""
+    """Refuse to start if the LLM is not configured, with an actionable message.
 
-    settings = Settings()
+    ``Settings`` itself raises when ``NYX_LLM_ENABLED=true`` is set without a model, so the raw
+    ``ValidationError`` is caught and re-reported as a structured refusal. Without this the CLI
+    printed a pydantic traceback and no error code -- a caller could not branch on it, which is
+    exactly the failure mode the chat shell is supposed to avoid.
+    """
+
+    try:
+        settings = Settings()
+    except ValidationError as exc:
+        # A model_validator failure carries no field loc, so match on the message the validator
+        # itself raises rather than on a field name.
+        message = str(exc)
+        if "NYX_LLM_MODEL" in message or "NYX_LLM_ENABLED" in message:
+            _chat_refuse(
+                "NYX_LLM_MODEL is not set; write it into .env -- "
+                "the chat shell will not guess a model.",
+                True,
+            )
+        _chat_refuse(f"invalid NYX configuration: {message.splitlines()[0]}", True)
     if not settings.llm_enabled:
         _chat_refuse(
             "NYX_LLM_ENABLED is false. Set it to true in .env, with NYX_LLM_MODEL, "
@@ -939,7 +975,13 @@ def _require_llm() -> None:
 def _build_agent(*, actor: str) -> ChatAgent:
     """Build the chat agent from settings, checking NYX is reachable first."""
 
-    settings = Settings()
+    try:
+        settings = Settings()
+    except ValidationError as exc:
+        _chat_refuse(
+            "invalid NYX configuration: " + (str(exc).splitlines()[0] if str(exc) else ""),
+            True,
+        )
     assert settings.llm_model is not None  # nosec B101 - _require_llm() guarantees this
     config = build_llm_config(
         protocol=settings.llm_protocol,

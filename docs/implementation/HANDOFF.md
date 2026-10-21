@@ -213,3 +213,68 @@ never kept in the transcript so a follow-up turn had no memory of what was said.
 **dmr-X is still not running** — that is unchanged, and remains the user's call. The chat was
 exercised against local Ollama over the same OpenAI-compatible wire.
 
+---
+
+## Update — 21 October 2026
+
+Phase 7 slices **6.1 (CLI contract)** and **6.6 (docs)** are done. Head `8c0cf38` was the previous
+session's chat commit; this session adds two commits on top of it.
+
+### 6.1 — the CLI contract, and three defects it found
+
+`tests/integration/test_cli_contract.py` (12 tests) asserts the machine interface: every command
+takes `--json`, the flag is a boolean switch, `--json` stdout is exactly one JSON document, failures
+exit non-zero with a stable code and no traceback, and no command prompts. `docs/CLI-CONTRACT.md`
+documents the exit codes and the per-item error shapes for callers.
+
+Writing that test found **three defects, two of them contract violations**:
+
+| # | Defect | Layer |
+| --- | --- | --- |
+| 1 | **A missing input file printed a traceback.** `nyx ingest event missing.json` raised `FileNotFoundError` — a raw Python exception, no error code, no exit code a caller could branch on. Now `INVALID_REQUEST` naming the path. | CLI |
+| 2 | **`nyx chat` printed a pydantic traceback instead of refusing.** `NYX_LLM_ENABLED=true` with no model made `Settings()` raise `ValidationError`, which escaped `_require_llm()` as a traceback. The shell's own friendly refusal never ran. Now the named-variable message, as documented. | CLI |
+| 3 | **A finding whose scope narrows by time could not be composed at all.** `dedupe_key` passed raw `datetime` objects into `canonical_json`, which had no default serializer, so `Scope.period` raised `TypeError` *after* the critic had already run. The finding was lost — not mislabelled. Any claim with a `period` hit this. | **deterministic core** |
+
+**#3 is the important one, and it is the same shape as #5 above.** `canonical_json` is documented as
+accepting "Pydantic models ... Datetimes use the domain's UTC `Z` representation", and it did — for a
+model at the *top level*. A model nested inside a plain dict was never reached by the top-level dump,
+so its datetimes arrived as `datetime` objects. A hash that is supposed to be a pure function of its
+input failed on ordinary data. The fix is a `default=` handler on the encoder
+(`src/nyx/domain/canonical.py`) plus `tests/unit/test_dedupe_key.py` (5 tests) asserting the key is
+stable, differs when the period differs, differs when the critic differs, and that an unencodable
+value still fails.
+
+Reproduced with an independent probe before fixing (`tmp/probes/probe_period.py`), outside the
+project's test helpers — the same discipline as the five defects above.
+
+### 6.6 — documentation
+
+`docs/CLI-CONTRACT.md` (new) documents the CLI's machine interface for callers. `docs/conversational-interface.md`
+already covered the chat; `docs/implementation/HANDOFF.md` and `roadmap.md` are updated here.
+
+### What is left in Phase 7
+
+| Item | State |
+| --- | --- |
+| 6.1 Harden the CLI for other systems | **done** — contract-tested, documented |
+| 6.2 NYX MCP server | **done** — live-verified |
+| 6.3 LLM provider adapter | **done** — unit-tested, two protocols |
+| 6.4 Conversational front-end | **CLI chat done**; the Telegram bot is the remaining half |
+| 6.6 Documentation | **done** |
+| dmr-X gateway | not running; blocks live proof of 6.3 against the real backend |
+| End-to-end MCP run | **done** — `scripts/probe_mcp_live.py` |
+
+### Gates (21 October 2026)
+
+`uv run pytest` **340 passed** · `uv run mypy` clean (96 files) · `uv run ruff check .` clean ·
+`uv run ruff format --check .` 153 files formatted · `uv run alembic upgrade head` clean.
+
+The four live probes (`probe_live_api`, `probe_mcp_live`, `probe_mcp_roundtrip`, `probe_critic_pack`)
+all pass against the migrated dev database.
+
+### Next move
+
+The Telegram bot — the last half of 6.4, and the piece that makes NYX usable from a phone. It ports
+The-Agency's proven stack (handler, rate limiting, budget, error privacy) by pattern, never by
+vendoring its source.
+
