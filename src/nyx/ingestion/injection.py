@@ -69,7 +69,7 @@ def _render_evidence(item: EvidenceItem) -> str:
 
 
 def build_model_prompt(*, question: str, evidence: Sequence[EvidenceItem]) -> str:
-    """Compose the single prompt the conversational layer must use for retrieved content.
+    """Compose the single prompt to use when retrieved content must go into a model prompt.
 
     The prompt carries :data:`UNTRUSTED_CONTENT_NOTICE`, states the operator's question as
     trusted, and quotes every evidence item as untrusted data. It is the only supported way to
@@ -77,6 +77,13 @@ def build_model_prompt(*, question: str, evidence: Sequence[EvidenceItem]) -> st
     prompt by hand.
 
     The question is the operator's, so it is presented as trusted. Evidence is never trusted.
+
+    Where this is used today: the conversational layer (``nyx chat``, the Telegram bot) does **not**
+    compose evidence into a prompt -- it passes NYX's tool results to the model, and carries the
+    same rule through ``nyx.conversational.mcp_server.SERVER_INSTRUCTIONS``, which is included in
+    the agent's ``SYSTEM_PROMPT``. So this function is the helper for callers that *do* build a
+    prompt from retrieved content, such as a Phase 6 LLM critic. The two wordings state one rule;
+    if you change one, change the other.
     """
 
     lines: list[str] = [
