@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, TypeVar
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
@@ -51,7 +52,14 @@ from nyx.ingestion.inputs import (
     SystemManifestInput,
 )
 from nyx.ingestion.limits import LimitExceededError, enforce_payload_size
+from nyx.ingestion.paths import PathTraversalError, is_path_like, resolve_within
 from nyx.ingestion.redaction import RedactionError, RedactionReport, redact
+from nyx.ingestion.url_fetch import (
+    UrlFetchDenied,
+    host_resolves,
+    is_http_url,
+    validate_evidence_url,
+)
 from nyx.storage.repositories.claims import ClaimRepository
 from nyx.storage.repositories.events import EventRepository
 from nyx.storage.repositories.evidence import EvidenceRepository
@@ -462,6 +470,60 @@ class IngestionGateway:
 
     # -- evidence ----------------------------------------------------------------
 
+    def _validate_evidence_targets(
+        self, evidence_input: EvidenceInput, request_id: str
+    ) -> StructuredError | None:
+        """Enforce the SSRF and path-traversal guards on an evidence target (SPEC §12).
+
+        A producer-supplied ``source_ref`` URL and ``locator`` are untrusted data. The URL guard
+        refuses a private or non-routable target unless the deployment has explicitly opted in;
+        the locator guard refuses an absolute path or a ``..``/symlink escape out of the data
+        directory unless absolute locators are explicitly allowed. Both refuse with the existing
+        structured envelope, never by silently accepting the target.
+        """
+
+        if is_http_url(evidence_input.source_ref):
+            # A host that does not resolve is not a fetch target: NYX records the reference at
+            # registration and does not fetch it, so it is not an SSRF risk. The fetch guard
+            # (validate_evidence_url) refuses it at any future fetch boundary, where the
+            # fail-closed rule applies. A host that *does* resolve to a private target is
+            # refused here, at the ingestion edge.
+            host = urlsplit(evidence_input.source_ref).hostname or ""
+            if host and host_resolves(host):
+                try:
+                    validate_evidence_url(
+                        evidence_input.source_ref,
+                        allow_private=self._settings.evidence_allow_private_urls,
+                    )
+                except UrlFetchDenied as exc:
+                    return error_for(
+                        ErrorCode.SCHEMA_VALIDATION_FAILED,
+                        request_id=request_id,
+                        message=str(exc),
+                        field_details=[
+                            FieldDetail(field="/source_ref", issue=str(exc), code="invalid_target")
+                        ],
+                    )
+
+        locator = evidence_input.locator
+        if (
+            locator
+            and is_path_like(locator)
+            and not self._settings.evidence_allow_absolute_locators
+        ):
+            try:
+                resolve_within(self._settings.data_dir, locator)
+            except PathTraversalError as exc:
+                return error_for(
+                    ErrorCode.SCHEMA_VALIDATION_FAILED,
+                    request_id=request_id,
+                    message=str(exc),
+                    field_details=[
+                        FieldDetail(field="/locator", issue=str(exc), code="invalid_target")
+                    ],
+                )
+        return None
+
     def ingest_evidence(
         self,
         session: Session,
@@ -490,6 +552,9 @@ class IngestionGateway:
                 "rejected",
                 error=error_for(ErrorCode.REDACTION_FAILED, request_id=request_id),
             )
+        error = self._validate_evidence_targets(evidence_input, request_id)
+        if error is not None:
+            return IngestResult("rejected", error=error)
         request_hash = content_hash(evidence_input.model_dump(mode="json", by_alias=True))
         keys = idempotency.candidate_keys(
             producer_event_id=evidence_input.producer_event_id, idempotency_key=idempotency_key
