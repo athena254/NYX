@@ -114,6 +114,37 @@ Three properties are worth stating because they are where a bot usually goes wro
 The identity NYX records for a bot-filed rebuttal is derived from the Telegram account
 (`telegram:<user id>`), never a made-up name.
 
+## Keyless backends
+
+A **keyless** backend needs no API key from NYX. Two are verified from this machine
+(21 October 2026), by sending a real request with **no `Authorization` header at all**:
+
+| Backend | Base URL | Model | Key | Result |
+| --- | --- | --- | --- | --- |
+| **dmr-X gateway** | `http://127.0.0.1:3000` | `openai-fast` (routed to `gpt-oss-20b`), `gpt-oss-120b` | none | HTTP 200 |
+| **Pollinations Classic** | `https://text.pollinations.ai/openai` | `openai-fast` (only) | none | HTTP 200, `user_tier: "anonymous"` |
+
+dmr-X is the better of the two: it is the design default, it holds the upstream keys, and NYX needs
+none of its own. Point `NYX_LLM_BASE_URL` at it and set `NYX_LLM_MODEL=openai-fast`.
+
+**Three caveats, all measured rather than assumed:**
+
+- **dmr-X's free upstreams rate-limit hard.** Observed live: HTTP `429` (rate limit exceeded) and
+  HTTP `502` (`all_providers_failed`) on some models. When every upstream fails, the adapter raises
+  `the model is unavailable (unavailable)` and the chat reports it — it never fabricates an answer.
+  That is the designed behaviour; the fix is to retry, not to loosen the failure mode.
+- **Only two dmr-X models are reliably keyless.** Of the 58 ids `/v1/models` advertises, only
+  `openai-fast` and `gpt-oss-120b` answered without a key. The rest failed with
+  `all_providers_failed` — their upstream credentials are not configured.
+- **Pollinations' new API is not keyless.** `gen.pollinations.ai/v1` requires a key from
+  `enter.pollinations.ai` and bills Pollen credits. Only the **legacy** `text.pollinations.ai/openai`
+  lane is anonymous, and it serves exactly one model (`openai-fast`).
+
+**Everything else needs a free key**, though no card: Groq, OpenRouter (`:free` models), Google AI
+Studio, Mistral, Cohere, Cloudflare Workers AI, Hugging Face Inference Providers, SiliconFlow,
+Fireworks, Z.AI, SambaNova, Cerebras, NVIDIA NIM. Each is a one-line change — `NYX_LLM_BASE_URL`,
+`NYX_LLM_API_KEY`, `NYX_LLM_MODEL` — because the adapter already speaks both wire protocols.
+
 ## Prompt injection
 
 Everything NYX returns — a finding's summary, a rebuttal's argument, an evidence description — is

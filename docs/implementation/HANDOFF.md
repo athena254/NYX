@@ -365,3 +365,88 @@ not against dmr-X itself.
 2. **Phase 4** — security hardening: real authentication, rate limits on the API, audit-chain
    verification. This is the other large block of remaining work, and what makes NYX safe to expose
    beyond localhost.
+
+
+---
+
+## Update — 21 October 2026 (fourth session): dmr-X is running, and 6.3 is proven
+
+**dmr-X is up on `127.0.0.1:3000`, and `nyx chat` answered a real question against it with no API
+key at all.** Phase 7 is now complete.
+
+### Getting dmr-X to run
+
+Two blockers, both in the dmr-X repo rather than in NYX:
+
+1. **`bun install` had not linked the workspace packages.** `node_modules/@dmr-x/` was empty and
+   no package had a `dist/`, so `bun start` failed with `Cannot find module '@dmr-x/db'`.
+2. **turbo was unusable.** `node_modules/.bin/turbo.exe` was an 8 KB shim, and the real
+   `node_modules/@turbo/windows-64/bin/turbo.exe` failed with
+   `error while loading shared libraries: ghostty-vt.dll`. That DLL is not on npm (404) and was
+   never fetched, because bun does not run the platform package's install hook the way npm does.
+
+**The fix was to bypass turbo, not repair it.** `tsconfig.json` files carry no `references`, so
+`tsc -b` cannot orchestrate; instead the workspace was topologically sorted on its own
+`@dmr-x/*` dependencies and each package compiled with `tsc -p` in order. **35 modules compiled.**
+The script is not checked in — it was a one-off, and turbo remains the project's real build.
+
+Two things worth knowing before starting dmr-X again:
+
+- **Run it from the repo root**: `bun apps/gateway/src/main.ts`. `main.ts` parses `.env` from
+  `process.cwd()`, and `bun run start` sets cwd to `apps/gateway`, where there is no `.env` — so it
+  came up with `NODE_ENV` unset, concluded it was in production, and refused with
+  `DMRX_CORS_ORIGIN must be set to explicit origins in production`.
+- The missing `@turbo/windows-64` was installed with `bun add --no-save`, so dmr-X's
+  `package.json` is untouched. `bun.lock` did change by one line (gateway `0.5.20` → `0.5.21`,
+  matching the already-committed `package.json`).
+
+### 6.3 — proven against the real backend
+
+`nyx chat ask "What findings does NYX have? Cite their ids." --json` returned a real answer citing
+real finding ids from NYX's own store, over the OpenAI-compatible wire, with **no `Authorization`
+header**. The adapter's two protocols are both exercised against a live endpoint now.
+
+### Keyless providers — researched and verified
+
+| Backend | Base URL | Model | Key | Verified |
+| --- | --- | --- | --- | --- |
+| dmr-X gateway | `http://127.0.0.1:3000` | `openai-fast` (→ `gpt-oss-20b`), `gpt-oss-120b` | none | HTTP 200 |
+| Pollinations Classic | `https://text.pollinations.ai/openai` | `openai-fast` (only) | none | HTTP 200, `user_tier: anonymous` |
+
+Measured caveats, all of them live rather than documented:
+
+- **dmr-X's free upstreams rate-limit hard.** `429` and `502 all_providers_failed` were both
+  observed. The adapter reports `the model is unavailable (unavailable)` and the chat refuses to
+  answer — correct behaviour, and the reason a turn can fail intermittently.
+- **Only 2 of the 58 advertised dmr-X model ids are reliably keyless.** The rest failed with
+  `all_providers_failed`.
+- **Pollinations' new `gen.pollinations.ai/v1` requires a key.** Only the legacy
+  `text.pollinations.ai/openai` lane is anonymous, and it serves exactly one model.
+- Everything else (Groq, OpenRouter `:free`, Google AI Studio, Mistral, Cohere, Cloudflare, Hugging
+  Face, SiliconFlow, Fireworks, Z.AI, SambaNova, Cerebras, NVIDIA NIM) needs a **free key** — still
+  no card, and still a one-line config change.
+
+`.env` now points at the gateway: `NYX_LLM_PROVIDER=dmr-x`, `NYX_LLM_BASE_URL=http://127.0.0.1:3000`,
+`NYX_LLM_MODEL=openai-fast`. That is the documented design default; it was previously pointed at
+Ollama only because dmr-X was not running.
+
+### What is left in Phase 7
+
+| Item | State |
+| --- | --- |
+| 6.1 Harden the CLI for other systems | **done** |
+| 6.2 NYX MCP server | **done** — live-verified |
+| 6.3 LLM provider adapter | **done** — **proven against the real dmr-X backend** |
+| 6.4 Conversational front-end | **done** — CLI chat + Telegram bot |
+| 6.6 Documentation | **done** |
+| dmr-X gateway | **running** |
+
+**Phase 7 is complete.** Nothing in it is left.
+
+### Next move
+
+**Phase 4 — security and operational hardening.** Real authentication (the capability checker is
+still `DenyAllCapabilityChecker`), rate limits on the API, audit-chain verification
+(`nyx audit verify`), retention and redaction jobs, and the prompt-injection/SSRF/path-traversal
+tests. This is what makes NYX safe to expose beyond localhost, and it is the largest remaining
+block of work. Acceptance scenarios 13–20 gate it.
