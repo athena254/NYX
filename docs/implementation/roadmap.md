@@ -41,9 +41,11 @@ gated in Phase 4 for safe failure handling and re-validated in Phase 6 with an a
 - [x] Record key decisions in ADRs 0001–0006.
 - [x] Map acceptance scenarios and the 17-step task order to expected test and source files.
 - [x] Review the Phase 0 documents and schemas with the project owner.
-- [ ] Complete the dependency/license/maturity review in SPEC §12 before adding any integration
-      dependency. Installed versions and licenses are recorded in `current-state.md`; no independent
-      security or maturity audit has been performed.
+- [x] Complete the dependency/license/maturity review in SPEC §12 before adding any integration
+      dependency. **Done 21 October 2026** — `docs/implementation/phase-5-plan.md` §1 is the audit:
+      every installed package with its version and licence read from the venv, the candidates
+      considered and rejected with reasons, and the verdict that Phase 5 adds **no** new third-party
+      dependency (`httpx`, already installed, plus the standard library).
 
 **Exit criteria (SPEC §19):** the team can explain which facts NYX can observe, which it cannot, and
 what each evidence source actually establishes. The supporting explanation is in

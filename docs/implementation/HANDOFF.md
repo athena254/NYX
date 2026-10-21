@@ -573,3 +573,53 @@ migrated database: **6 checks, all green**.
 
 **Phase 5 — integrations.** `docs/implementation/phase-5-plan.md` is being written; the Git/CI
 adapter is the first slice.
+
+---
+
+## Update — 21 October 2026 (seventh session): the Phase 5 plan is accepted
+
+`docs/implementation/phase-5-plan.md` is written, counterchecked against the code, and accepted. It
+closes the Phase 0 open box (SPEC §12 dependency review) and defines six slices for the Git/CI
+adapter.
+
+### The countercheck found one false claim and two stale ones
+
+The plan is a claim set, so it was checked against the code before being accepted rather than trusted:
+
+| # | Plan claim | Verdict |
+| --- | --- | --- |
+| D4 | "`src/nyx/evidence/` does not exist" | **False.** `ls -la src/nyx/evidence/` shows an **empty directory**. It is untracked (git does not track empty directories), which is why `git log --all` was empty — but the directory is there. Corrected. |
+| D6/D7 | the scenario-24 change is uncommitted | **Stale.** Written while that change was in flight; it is now committed as `b6b2858`. Resolved. |
+| §2.2/§2.3 | code comments labelling `base.py` as slice 5.1, `config.py` as 5.2, `normalize.py` as 5.3, `adapter.py` as 5.4 | **Off by one** against §3's own slice table. Corrected. |
+
+The rest of the plan's countercheck findings were **confirmed**: `task-checklist.md` step 15 names
+`docs/adr/0007-git-ci-adapter.md` but ADR 0007 is `0007-auth-modes.md` (next free number is 0008);
+step 6 names `src/nyx/evidence/*` which has no modules; `certifi 2026.10.19` is installed and
+`uv audit` reports no known vulnerabilities in 70 packages; there is **no file adapter** in the code;
+`httpx` is called only from `conversational/`.
+
+### Decisions taken (the plan's open questions, now closed)
+
+- **No new third-party dependency for Phase 5.** `httpx` (already installed, BSD-3-Clause) plus the
+  standard library. `PyGithub` (LGPL-3.0, actively seeking maintainers), `pygit2` (GPL-2.0, one
+  maintainer), `dulwich`, `GitPython`, and `requests` are recorded with their rejection reasons.
+- **OpenTelemetry is out of Phase 5.** It is a separate adapter with its own dependency review.
+- **The local-git provider uses no `subprocess`.** It reads `.git/HEAD`, `.git/refs/**`,
+  `.git/packed-refs`, and `.git/logs/HEAD` with `pathlib` and the standard library, so gate G1 stays
+  intact and scenario 16's hole stays closed by construction. **Documented limitation:** it reads refs
+  and the reflog, not git objects, so it cannot read commit contents or diffs.
+- **`adapter_enabled` is a deployment filter; the registry is the code inventory.** Keeping them apart
+  is what lets `nyx doctor` say "registered but disabled" without repeating the Phase 4 defect of
+  reporting configuration as availability.
+
+### Status documents corrected
+
+`task-checklist.md` step 15 (ADR number), step 6 (evidence paths), and the Phase 0 open box in
+`roadmap.md` (the SPEC §12 review, now closed by the plan's §1).
+
+### Next move
+
+**Slice 5.0** — shared adapter infrastructure, orchestrator-owned: `src/nyx/adapters/{__init__,base}.py`,
+the `Settings` fields, `.env.example`, the two new `ErrorCode` members, ADR 0008, and the boundary
+grep test (G7). It must land **before** any delegated slice starts, or a child can create a file the
+orchestrator then cannot write.
