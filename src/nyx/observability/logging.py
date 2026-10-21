@@ -77,10 +77,23 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure_logging(level: str = "INFO") -> None:
-    """Configure the root logger with the JSON formatter exactly once."""
+    """Add the JSON formatter to the root logger, once.
+
+    The handler is **added**, not substituted. ``root.handlers = [handler]`` discards every handler
+    another component installed -- a test runner's capture handler, uvicorn's, a library's -- and a
+    handler that captured a stream which has since been closed raises on emit, which surfaces as a
+    ``--- Logging error ---`` block on stderr. Adding ours and leaving the rest alone is both safer
+    and idempotent: a second call is a no-op rather than a second handler.
+    """
 
     root = logging.getLogger()
     root.setLevel(level.upper())
+    already_configured = any(
+        isinstance(handler, logging.StreamHandler) and isinstance(handler.formatter, JsonFormatter)
+        for handler in root.handlers
+    )
+    if already_configured:
+        return
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
-    root.handlers = [handler]
+    root.addHandler(handler)

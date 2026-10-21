@@ -478,16 +478,30 @@ def doctor(
     record("api_app", *_check_api_app())
     record("openapi_current", *_check_openapi())
 
-    _finish_doctor(checks, json_output)
+    _finish_doctor(
+        checks,
+        json_output,
+        effective_config=settings.display_effective_config(),
+    )
     if any(check["status"] == "fail" for check in checks):
         raise typer.Exit(code=1)
 
 
 def _finish_doctor(
-    checks: list[dict[str, Any]], json_output: bool, *, extra: str | None = None
+    checks: list[dict[str, Any]],
+    json_output: bool,
+    *,
+    extra: str | None = None,
+    effective_config: str | None = None,
 ) -> None:
     if json_output:
-        typer.echo(json.dumps({"checks": checks}, indent=2))
+        payload: dict[str, Any] = {"checks": checks}
+        # The secret-safe effective configuration, so a caller can see what the service will
+        # actually use without the command having to print a raw credential to do it.
+        # ``display_effective_config`` redacts every secret-ish value by construction.
+        if effective_config is not None:
+            payload["effective_config"] = json.loads(effective_config)
+        typer.echo(json.dumps(payload, indent=2))
         return
     for check in checks:
         marker = "ok" if check["status"] == "ok" else "fail"
