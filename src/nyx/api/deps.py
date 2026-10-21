@@ -8,10 +8,13 @@ from fastapi import Depends, Request
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from nyx.auth.checker import ConfigBackedCapabilityChecker
+from nyx.auth.dependency import current_principal, get_capability_store
+from nyx.auth.principal import AuthenticatedPrincipal
 from nyx.config import Settings
 from nyx.disputes.service import DisputeService
 from nyx.disputes.verification import VerificationAllowlist, default_allowlist
-from nyx.findings.lifecycle import CapabilityChecker, DenyAllCapabilityChecker
+from nyx.findings.lifecycle import CapabilityChecker
 from nyx.findings.service import FindingService
 from nyx.ingestion.service import IngestionService
 from nyx.storage.db import session_scope
@@ -66,15 +69,25 @@ def get_dispute_service(
     )
 
 
+def get_principal(request: Request) -> AuthenticatedPrincipal:
+    """Return the authenticated principal for this request."""
+
+    return current_principal(request)
+
+
 def get_capability_checker(request: Request) -> CapabilityChecker:
     """Return the capability checker bound to the running application.
 
-    Defaults to deny-all. Phase 4 replaces it with one backed by authenticated identity; until then
-    no principal may change a disposition.
+    The application may not have bound a checker yet. When a checker is bound, use
+    it — including the explicit deny-all default the application factory installs
+    until the orchestrator wires the authenticated one. When none is bound,
+    construct the real configuration-backed checker rather than denying by default.
     """
 
     checker = getattr(request.app.state, "capability_checker", None)
-    return checker or DenyAllCapabilityChecker()
+    if checker is not None:
+        return checker  # type: ignore[no-any-return]
+    return ConfigBackedCapabilityChecker(get_capability_store(request))
 
 
 def get_verification_allowlist(request: Request) -> VerificationAllowlist:

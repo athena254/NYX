@@ -23,6 +23,8 @@ from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 
 from nyx.audit.verifier import VerificationReport, verify_chain
+from nyx.auth.checker import ConfigBackedCapabilityChecker
+from nyx.auth.store import ANONYMOUS_PRINCIPAL_ID, CapabilityStore
 from nyx.config import Settings
 from nyx.conversational.agent import (
     ChatAgent,
@@ -60,7 +62,6 @@ from nyx.domain.ids import new_request_id
 from nyx.error_codes import ErrorCode
 from nyx.findings.lifecycle import (
     CapabilityDeniedError,
-    DenyAllCapabilityChecker,
     InvalidLifecycleTransitionError,
 )
 from nyx.findings.service import FindingQuery, FindingService
@@ -201,18 +202,21 @@ def _finding_service() -> FindingService:
 def _dispute_session() -> Iterator[DisputeService]:
     """Yield a dispute service over one transaction.
 
-    The CLI has no HTTP request to hang a transaction on, so each command opens exactly one. The
-    capability checker is deny-all until Phase 4 wires authentication: the CLI can record a rebuttal
-    or request verification, and a disposition is refused with ``CAPABILITY_REQUIRED``.
+    The CLI has no HTTP request to hang a transaction on, so each command opens exactly one. It
+    acts as the local operator (see :func:`_cli_actor`) against the configuration-backed checker,
+    which is the same identity an unauthenticated loopback request receives (ADR 0007).
     """
 
-    engine = create_engine_from_settings(Settings())
+    settings = Settings()
+    engine = create_engine_from_settings(settings)
     factory = create_session_factory(engine)
     try:
         with session_scope(factory) as session:
             yield DisputeService(
                 session,
-                capability_checker=DenyAllCapabilityChecker(),
+                capability_checker=ConfigBackedCapabilityChecker(
+                    CapabilityStore.load_from_settings(settings)
+                ),
                 allowlist=default_allowlist(),
             )
     finally:
@@ -736,13 +740,21 @@ def _dispute_error(code: ErrorCode, message: str, json_output: bool) -> None:
     _emit_error(StructuredError(code=code.value, message=message, request_id="cli"), json_output)
 
 
-def _actor_for(identifier: str) -> PrincipalRef:
-    """Build the actor for a CLI action.
+def _cli_actor() -> PrincipalRef:
+    """Return the identity the CLI acts as: the local operator.
 
-    The CLI has no authenticated identity yet; Phase 4 replaces this with the logged-in principal.
+    The CLI opens the database directly and is outside HTTP authentication (ADR 0007), so it acts
+    as the loopback local operator -- the same identity an unauthenticated loopback request
+    receives. The declared identity is still recorded on the row; the actor is what must hold the
+    capability. Local shell access already implies database write access, so this grants nothing an
+    operator could not do directly with ``sqlite3``.
     """
 
-    return PrincipalRef(id=identifier or "principal_cli", kind=PrincipalKind.PRINCIPAL)
+    return PrincipalRef(
+        id=ANONYMOUS_PRINCIPAL_ID,
+        kind=PrincipalKind.HUMAN,
+        display_name="Local operator (CLI)",
+    )
 
 
 @finding_app.command("rebut")
@@ -765,7 +777,7 @@ def finding_rebut(
         with _dispute_session() as dispute:
             rebuttal = dispute.submit_rebuttal(
                 finding_id=finding_id,
-                actor=_actor_for(submitted_by),
+                actor=_cli_actor(),
                 submitted_by=submitted_by,
                 argument=str(document.get("argument", "")),
                 evidence_ids=list(document.get("evidence_ids", [])),
@@ -839,7 +851,7 @@ def finding_dispose(
         with _dispute_session() as dispute:
             disposition = dispute.record_disposition(
                 finding_id=finding_id,
-                actor=_actor_for(decided_by),
+                actor=_cli_actor(),
                 outcome=outcome,
                 rationale=reason,
                 decided_by=decided_by,

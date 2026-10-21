@@ -4,14 +4,17 @@ These endpoints are the HTTP face of :class:`~nyx.disputes.service.DisputeServic
 workflow. The route layer adds nothing to the logic: it validates the request body, opens one
 transaction, and maps failures onto the shared error envelope.
 
-Two things are deliberately NOT here yet, both Phase 4:
+Two authorisation facts, both Phase 4:
 
-* **Authentication.** The actor is taken from the request body rather than an authenticated
-  identity, so every dispute record is currently self-asserted. Phase 4 replaces this with a
-  verified principal.
-* **Authorisation.** Capability checking is enforced by the lifecycle machine, but the checker bound
-  to the application is deny-all until Phase 4 wires real authorisation. A default deployment
-  therefore accepts rebuttals and refuses dispositions, which is the safe direction.
+* **Authentication.** The actor on a lifecycle transition is the authenticated principal when the
+  deployment authenticates its callers, so a caller cannot record an action under another identity.
+  A loopback-only deployment (``auth_mode='none'``, reachable only on loopback per ADR 0007) has no
+  remote caller to impersonate, so the declared identity is accepted there and every existing local
+  caller keeps working.
+* **Authorisation.** Capability checking is enforced by the lifecycle machine against the checker
+  the application factory binds (ADR 0007). A default deployment on loopback runs as the local
+  operator; a deployment that authenticates callers grants only the capabilities each principal was
+  configured with.
 
 The append-only contract is visible in the surface itself: there is no ``PATCH`` or ``DELETE`` here,
 and no endpoint that rewrites a prior record.
@@ -23,6 +26,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from nyx.api.deps import get_dispute_service
 from nyx.api.errors import ApiError, request_id_for
+from nyx.auth.dependency import current_principal
 from nyx.disputes.models import Disposition, Rebuttal, VerificationJob
 from nyx.disputes.service import (
     DisputeService,
@@ -31,7 +35,7 @@ from nyx.disputes.service import (
 )
 from nyx.disputes.verification import VerificationNotPermittedError
 from nyx.domain.base import Identifier, NyxModel, PrincipalRef
-from nyx.domain.enums import DispositionOutcome, PrincipalKind, RebuttalRequestedOutcome
+from nyx.domain.enums import DispositionOutcome, RebuttalRequestedOutcome
 from nyx.error_codes import ErrorCode
 from nyx.findings.lifecycle import CapabilityDeniedError, InvalidLifecycleTransitionError
 from nyx.findings.models import Finding
@@ -122,14 +126,22 @@ class DisputeHistoryResponse(NyxModel):
 # --------------------------------------------------------------------------- helpers
 
 
-def _as_actor(identifier: Identifier) -> PrincipalRef:
-    """Build the actor recorded on a lifecycle transition.
+def _actor_for(request: Request, declared: Identifier) -> PrincipalRef:
+    """Return the identity to record on a lifecycle transition.
 
-    Self-asserted for now, and the audit trail says so. Phase 4 replaces this with the authenticated
-    principal; until then every dispute record carries the identity the caller claimed.
+    The actor is always the **authenticated principal**. A caller must never be able to record an
+    action under another identity, and wiring the capability checker without that would be worse
+    than the old deny-all default: anyone could put ``decided_by: "operator"`` in the body and be
+    granted the operator's capability.
+
+    In a loopback-only deployment (``auth_mode='none'``, which ``config.py`` restricts to loopback)
+    the authenticated principal is the local operator -- the same identity the CLI acts as, which
+    is what keeps every existing local caller and probe working. ``declared`` is still recorded on
+    the row as ``submitted_by``/``decided_by``; it is a claim about who acted, no longer the
+    identity that authorises the action.
     """
 
-    return PrincipalRef(id=identifier, kind=PrincipalKind.PRINCIPAL)
+    return current_principal(request).id
 
 
 def _require_finding(service: DisputeService, finding_id: str) -> Finding:
@@ -146,6 +158,7 @@ def _require_finding(service: DisputeService, finding_id: str) -> Finding:
 def submit_rebuttal(
     finding_id: str,
     payload: RebuttalRequest,
+    request: Request,
     service: DisputeService = Depends(get_dispute_service),
 ) -> Rebuttal:
     """Record a challenge to a finding.
@@ -157,7 +170,7 @@ def submit_rebuttal(
     try:
         return service.submit_rebuttal(
             finding_id=finding_id,
-            actor=_as_actor(payload.submitted_by),
+            actor=_actor_for(request, payload.submitted_by),
             submitted_by=payload.submitted_by,
             argument=payload.argument,
             evidence_ids=payload.evidence_ids,
@@ -262,6 +275,7 @@ def get_verification_job(
 def record_disposition(
     finding_id: str,
     payload: DispositionRequest,
+    request: Request,
     service: DisputeService = Depends(get_dispute_service),
 ) -> Disposition:
     """Record an authorised outcome and move the finding to the matching state.
@@ -273,7 +287,7 @@ def record_disposition(
     try:
         return service.record_disposition(
             finding_id=finding_id,
-            actor=_as_actor(payload.decided_by),
+            actor=_actor_for(request, payload.decided_by),
             outcome=payload.outcome,
             rationale=payload.rationale,
             decided_by=payload.decided_by,

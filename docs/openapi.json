@@ -3715,7 +3715,7 @@
     },
     "/api/v1/evidence/{evidence_id}": {
       "get": {
-        "description": "Retrieve one evidence item by its stable id.",
+        "description": "Retrieve one evidence item by its stable id.\n\nA ``restricted`` item — by classification or by its access policy — additionally\nrequires ``EVIDENCE_RESTRICTED``. The refusal carries no evidence content.",
         "operationId": "get_evidence_api_v1_evidence__evidence_id__get",
         "parameters": [
           {

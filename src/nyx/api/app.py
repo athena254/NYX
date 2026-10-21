@@ -19,10 +19,11 @@ from nyx.api.routes import (
     health,
     systems,
 )
+from nyx.auth.checker import ConfigBackedCapabilityChecker
+from nyx.auth.store import CapabilityStore
 from nyx.config import Settings
 from nyx.critics import register_storage_backed
 from nyx.disputes.verification import default_allowlist
-from nyx.findings.lifecycle import DenyAllCapabilityChecker
 from nyx.findings.service import FindingService
 from nyx.ingestion.service import IngestionService
 from nyx.observability.logging import configure_logging
@@ -73,9 +74,14 @@ def create_app(
     app.state.session_factory = session_factory
     app.state.service = IngestionService(session_factory, effective)
     app.state.finding_service = FindingService(session_factory)
-    # Phase 4 replaces both: real authentication supplies the checker, and the allowlist is
-    # already explicit (a check is code, registered in one place). Deny-all is the safe default.
-    app.state.capability_checker = DenyAllCapabilityChecker()
+    # ADR 0007: the checker is real, not deny-all. On loopback with auth_mode='none' the
+    # authenticated principal is the local operator holding the deployment-owner capabilities;
+    # with auth_mode='api_key' each caller holds only the capabilities it was configured with.
+    # Deny-all here would refuse every disposition, which is why Phase 3's default deployment
+    # accepted rebuttals but could never record one.
+    app.state.capability_checker = ConfigBackedCapabilityChecker(
+        CapabilityStore.load_from_settings(effective)
+    )
     app.state.verification_allowlist = default_allowlist()
 
     # C-010 audits NYX's own store, so it must be handed THIS session factory -- the one every

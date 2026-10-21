@@ -88,18 +88,23 @@ class FindingNotFoundError(LifecycleError):
 
 
 class Capability(StrEnum):
-    """The capabilities the lifecycle machine asks about.
+    """The capabilities the lifecycle machine and the API ask about.
 
     ``DISPOSITION`` covers every change of a finding's disposition (the four
     verdicts, remediation, and withdrawal, which SPEC §5.7 lists as a
     disposition outcome). ``ACCEPT_RISK`` is separate because accepting risk is
     a distinct authorisation (SPEC §6). ``ADMINISTER`` covers the purely
-    administrative terminal states.
+    administrative terminal states. ``EVIDENCE_READ`` gates reading an evidence
+    item, and ``EVIDENCE_RESTRICTED`` gates reading an item classified
+    ``restricted`` or carrying the ``evidence:restricted`` access policy; finding
+    access never implies evidence access (SPEC §12, privacy-and-retention §6).
     """
 
     DISPOSITION = "findings.disposition"
     ACCEPT_RISK = "findings.accept_risk"
     ADMINISTER = "findings.administer"
+    EVIDENCE_READ = "evidence.read"
+    EVIDENCE_RESTRICTED = "evidence.restricted"
 
 
 class CapabilityChecker(Protocol):
