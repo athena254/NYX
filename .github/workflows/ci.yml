@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The declared minimum is what `requires-python` promises, so that is what CI proves.
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-groups --python ${{ matrix.python-version }}
+
+      # The project's own gate set, in the order AGENTS.md defines. Each step fails the job on a
+      # non-zero exit, so a red gate cannot be mistaken for a pass.
+      - name: Tests
+        run: uv run pytest
+
+      - name: Types
+        run: uv run mypy
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      # Against a FRESH database, not the developer's: a migration that only works on an
+      # already-migrated file is not proven by this step.
+      - name: Migrations
+        env:
+          NYX_DATABASE_URL: sqlite:///./ci-fresh.sqlite3
+          NYX_DATA_DIR: ${{ runner.temp }}/nyx-ci-data
+        run: |
+          mkdir -p "$NYX_DATA_DIR"
+          uv run alembic upgrade head
+          rm -f ci-fresh.sqlite3

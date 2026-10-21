@@ -1,0 +1,41 @@
+name: Security scanning
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    # Weekly, Monday 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      # Dependency scanning of the checked-in lockfile. `uv audit` needs no network credentials.
+      # If it is ever unavailable, pip-audit against the same lock is the documented fallback.
+      - name: Audit dependencies (uv)
+        run: uv audit
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t nyx:scan .
+
+      # Trivy fails the job on a FIXABLE or higher finding. Informational findings are reported,
+      # not fatal -- a base image with an informational CVE is not a reason to block a merge.
+      - name: Scan the image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: nyx:scan
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: false

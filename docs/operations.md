@@ -146,8 +146,42 @@ Three operational facts worth knowing:
 - **A verification attempt is not a verdict.** It records whether the finding reproduces, together
   with an explicit independence statement. Only an authorised disposition moves the finding.
 
+## Container deployment
+
+`Dockerfile` builds a minimal image: dependencies from the lockfile, the service as a non-root
+user, migrations run at container start.
+
+```bash
+docker build -t nyx .
+docker run --rm -p 127.0.0.1:8000:8000 \
+  -e NYX_DATABASE_URL=sqlite:///./data/nyx.sqlite3 \
+  -e NYX_DATA_DIR=/app/data \
+  -v nyx-data:/app/data \
+  nyx
+```
+
+The image binds **loopback by default**. Exposing it requires both of these, and `Settings`
+refuses the unsafe combination rather than starting:
+
+- `NYX_HOST=0.0.0.0` — a non-loopback bind
+- `NYX_AUTH_MODE=api_key` (or `local`) with a credential configured
+
+A container started with a non-loopback host and no authentication fails to start. That is the
+intended behaviour, not a bug.
+
+No secret is baked into the image. Credentials come from the environment at run time; write them
+into a secrets store or a mounted file, never into the image or the build context. `.dockerignore`
+excludes `.env`, the virtual environment, the caches, and the local data directory.
+
 ## Deferred operational work
 
-Rate limiting is per-process as described above. Retention jobs, external adapters, and container/CI
-hardening are later phases. There is no shared rate-limit store, automated backup scheduler, or
-metrics endpoint yet; monitor logs and `/ready` externally.
+- **Rate limiting is per-process**, as described above. A multi-process or multi-host deployment
+  needs a shared store; there is no cluster-wide quota yet.
+- **External adapters are not implemented** (Phase 5).
+- **Retention purge is opt-in and single-node.** `nyx retention purge` acts on the database it is
+  pointed at; there is no scheduler. Run it from a host that can reach the database, and treat
+  `--apply` as a change you would not make by accident.
+- **There is no metrics endpoint yet.** Monitor logs and `/ready` externally; the metric list in
+  SPEC §16 is not implemented.
+- **CI is configured but the container image has not been built on this machine** -- Docker is not
+  installed here. The workflow builds and scans it in CI.
