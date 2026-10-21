@@ -22,9 +22,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
+
+from nyx.domain.base import format_utc
 
 
 def canonical_json(value: object) -> bytes:
@@ -38,8 +41,25 @@ def canonical_json(value: object) -> bytes:
         separators=(",", ":"),
         ensure_ascii=False,
         allow_nan=False,
+        default=_json_default,
     )
     return text.encode("utf-8")
+
+
+def _json_default(value: Any) -> Any:
+    """Serialise the non-JSON scalars NYX legitimately carries, so a hash cannot fail on them.
+
+    A ``BaseModel`` nested inside a plain dict -- a ``Scope`` inside a dedupe key, say -- is not
+    reached by the top-level model dump, and its datetimes arrive as ``datetime`` objects. Without
+    this, any payload containing one raised ``TypeError`` *after* the caller had already built the
+    object, so a hash that is supposed to be a pure function of its input failed on ordinary data.
+    """
+
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json", by_alias=True)
+    if isinstance(value, datetime):
+        return format_utc(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def canonical_text(value: object) -> str:
