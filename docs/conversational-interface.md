@@ -81,6 +81,11 @@ explicitly; the system prompt repeats it.
   adapter does not parse, so a model that thinks for its whole budget returns empty content. With
   `qwen3.5:0.8b` and a small store, a full chat turn takes **30–90 seconds** and can exceed a short
   timeout. Raise `NYX_LLM_TIMEOUT_SECONDS` or use a faster non-reasoning model.
+  **Measured 21 October 2026:** a two-round turn against `qwen3.5:0.8b` took **2m07s**, so the
+  default `NYX_LLM_TIMEOUT_SECONDS=120` is *just* too short for this model — a single call can run
+  past it, and the turn fails as `the model is unavailable (timeout)` rather than returning the
+  answer it had already computed. With `NYX_LLM_TIMEOUT_SECONDS=300` the same question succeeded.
+  A reasoning model needs a generous per-call budget, not a short one.
 - **A model can still embellish.** Observed: asked about a finding, the model appended
   "recommended actions" that NYX never returned. Every substantive claim cited a real id, but the
   surrounding prose was invented. The prompt forbids this; it is not yet structurally prevented.
