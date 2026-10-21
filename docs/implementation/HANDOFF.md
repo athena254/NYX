@@ -623,3 +623,65 @@ step 6 names `src/nyx/evidence/*` which has no modules; `certifi 2026.10.19` is 
 the `Settings` fields, `.env.example`, the two new `ErrorCode` members, ADR 0008, and the boundary
 grep test (G7). It must land **before** any delegated slice starts, or a child can create a file the
 orchestrator then cannot write.
+
+---
+
+## Update — 22 October 2026 (eighth session): slices 5.0, 5.1, 5.2 landed
+
+**Answer to "is slice 5.0 the last piece?" — no, it is the first.** Phase 5 has six slices
+(5.0–5.5); Phase 6 (model critics and calibration) follows. What is left after this session:
+5.3 adapter assembly + live contract test, 5.4 local-git provider, 5.5 fixture provider +
+the disablement test (the Phase 5 exit criterion), then all of Phase 6.
+
+### Landed
+
+| Slice | Commit | What |
+| --- | --- | --- |
+| 5.0 | `c0bc402` | `Adapter` protocol, registry, health, config fields, ADR 0008, boundary grep (G7) |
+| 5.1 + 5.2 | `f652fcb` | `GitHubCiClient`, `GitCiConfig`, `normalize.py` — built in parallel, disjoint files |
+
+### The probe found a defect 28 unit tests could not
+
+`tmp/probes/probe_git_ci_adapter.py` stands up a real HTTP server speaking enough of the GitHub
+API, drives the real client over a real socket, and pushes the normalized output through the real
+`IngestionService` against a real migrated database. **28 checks, all green.**
+
+It failed first on a real defect: **the adapter's evidence could not be stored at all.**
+`EvidenceItem` requires `relevance_to_claim` or `relevance_to_finding`, and an observing adapter
+produces evidence *before* any claim references the run. Slice 5.2's 20 tests passed because they
+asserted that `normalize()` returns valid Pydantic input models and never pushed the result through
+the ingestion path.
+
+### One decision the owner may want to reverse
+
+Emitting a claim from the same CI run was considered and rejected — it would make C-001 assess a
+claim against evidence from its own source, which SPEC §8 warns is not independent corroboration.
+
+**Resolution (SPEC §5.4 deviation, recorded in ADR 0008):** `EvidenceItem` now accepts a third
+state — neither relevance target, but a `relevance_note` explaining why. The original refusal is
+intact for a producer that simply omits the field; unlinked evidence must *say it is unlinked*.
+No column changed, no schema changed. `tests/unit/test_evidence_relevance.py` pins both directions.
+
+**If the owner would rather keep SPEC §5.4 literally**, the alternatives are: have the monitored
+system file the claim first and the adapter link to it (needs a claim-lookup the adapter cannot
+do — it holds no session), or accept that the adapter emits events only and no evidence (then
+C-001 has nothing to compare). Say which and it is a small change.
+
+### Also corrected in the plan
+
+- `EventInput` has **no `scope` field**, so §2.4's "set the head SHA on the event's `Scope`" was
+  not implementable. The event carries it in `payload["commit"]`; the evidence on `Scope.commit`.
+- The event and the evidence need **distinct** `producer_event_id`s, or the evidence's ingestion
+  is a spurious `DUPLICATE_EVENT`.
+
+### Gates (22 October 2026)
+
+`uv run pytest` **603 passed, 1 skipped** · `uv run mypy` clean (126 files) · `uv run ruff check .`
+clean · `uv run ruff format --check .` 205 files · `uv run alembic upgrade head` clean ·
+`docs/openapi.json` unchanged.
+
+### Next move
+
+**Wave 2, in parallel:** slice 5.3 (`git_ci/adapter.py` + `tests/contract/test_git_ci_adapter.py`)
+and slice 5.4 (`git_ci/local_git.py` + `tests/unit/test_git_ci_local_git.py`). Both are unblocked:
+5.1 and 5.2 are landed and committed.
