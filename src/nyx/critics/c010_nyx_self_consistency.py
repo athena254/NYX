@@ -34,7 +34,7 @@ import re
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from nyx.audit.writer import _entry_hash
+from nyx.audit.chain import entry_hash
 from nyx.critics.base import CriticResult, CriticScope
 from nyx.critics.context import CriticContext
 from nyx.domain.audit import AuditTarget
@@ -168,7 +168,7 @@ class NyxSelfConsistencyCritic:
                     f"audit entry {entry.sequence} prior_entry_hash does not link to the "
                     "previous entry's entry_hash"
                 )
-            recomputed = _entry_hash(
+            recomputed = entry_hash(
                 schema_version=entry.schema_version,
                 sequence=entry.sequence,
                 actor=PrincipalRef.model_validate(entry.actor),

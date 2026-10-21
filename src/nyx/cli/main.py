@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 
+from nyx.audit.verifier import VerificationReport, verify_chain
 from nyx.config import Settings
 from nyx.conversational.agent import (
     ChatAgent,
@@ -88,6 +89,7 @@ critic_app = typer.Typer(help="List and run the deterministic critics.", no_args
 finding_app = typer.Typer(help="List and inspect findings.", no_args_is_help=True)
 chat_app = typer.Typer(help="Talk to NYX.", no_args_is_help=True)
 telegram_app = typer.Typer(help="Run the Telegram front-end.", no_args_is_help=True)
+audit_app = typer.Typer(help="Verify the append-only audit history.", no_args_is_help=True)
 
 app.add_typer(system_app, name="system")
 app.add_typer(ingest_app, name="ingest")
@@ -97,6 +99,7 @@ app.add_typer(critic_app, name="critic")
 app.add_typer(finding_app, name="finding")
 app.add_typer(chat_app, name="chat")
 app.add_typer(telegram_app, name="telegram")
+app.add_typer(audit_app, name="audit")
 
 
 @app.callback()
@@ -528,6 +531,60 @@ def _check_data_dir(data_dir: Path) -> bool:
     except OSError:
         return False
     return True
+
+
+# --------------------------------------------------------------------------- audit
+
+
+def _audit_report() -> VerificationReport:
+    """Verify the chain over one short-lived engine, then release it."""
+
+    engine = create_engine_from_settings(Settings())
+    try:
+        return verify_chain(create_session_factory(engine))
+    finally:
+        engine.dispose()
+
+
+@audit_app.command("verify")
+def audit_verify(
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Verify the audit hash chain and report its first divergence.
+
+    Exits 0 on a clean chain and 1 on divergence. The chain detects accidental mutation within the
+    stored sequence; it is not a defence against an attacker who rewrites the whole database and
+    recomputes every hash (SPEC §5.8).
+    """
+
+    try:
+        report = _audit_report()
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.INTERNAL_ERROR.value,
+                message=f"could not verify the audit chain ({type(exc).__name__})",
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(report.as_dict(), indent=2))
+    elif report.ok:
+        typer.echo(f"audit chain ok: {report.entries_checked} entries verified")
+    else:
+        assert report.first_divergence is not None  # nosec B101 - ok=False implies divergence
+        divergence = report.first_divergence
+        typer.echo(
+            f"audit chain diverged at sequence {divergence.sequence}: {divergence.reason}",
+            err=True,
+        )
+        typer.echo(f"entry: {divergence.entry_id}", err=True)
+
+    if not report.ok:
+        raise typer.Exit(code=1)
 
 
 # --------------------------------------------------------------------------- critic
