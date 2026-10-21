@@ -371,7 +371,7 @@ model confidence as calibrated probability without separate calibration, or auto
 ## Phase 7 — Conversational interface
 
 **Status:** in progress (21 October 2026). See `docs/implementation/conversational-interface-plan.md`.
-Slices 6.1, 6.2, 6.3, and the CLI half of 6.4 are done; 6.6 is done.
+Slices 6.1, 6.2, 6.3, 6.4 (CLI chat and Telegram bot), and 6.6 are done.
 
 **Deliverable:** a conversational front-end for NYX, living in the NYX repository as a separate
 independent unit, with the CLI as the machine interface for other systems. The default LLM backend
@@ -388,13 +388,18 @@ is the dmr-X inference gateway, consumed over HTTP.
       `/v1/messages`) behind one interface, so any Anthropic or OpenAI-compatible LLM works.
 - [x] dmr-X as the default inference backend, called over HTTP — dmr-X holds the API keys, so NYX
       needs none. Its code is not vendored; both projects stay independent.
-- [~] Conversational front-end: `nyx chat` (interactive CLI) is **done**. The Telegram bot is the
-      remaining half of this item.
+- [x] Conversational front-end: `nyx chat` (interactive CLI) and the **Telegram bot**
+      (`nyx telegram serve`). The bot drives the same `ChatAgent`, so it inherits the safety
+      property; it adds fail-closed admission (private chats, an explicit allowlist) and a
+      per-user rate limit. `tests/unit/test_conversational_telegram.py` (65 tests) and
+      `scripts/probe_telegram_live.py` prove it.
 - [x] Provider-failure, timeout, and prompt-injection handling.
 
 **Exit criteria:** a user can ask about stored findings and get an answer citing real finding IDs;
 can file a rebuttal and request verification by chatting; and **no code path exists** by which the
-conversational layer can create a finding or record a disposition.
+conversational layer can create a finding or record a disposition. The same three properties hold
+for the Telegram bot, which is a second entry point onto the same tool surface rather than a second
+implementation of it.
 
 **Acceptance scenarios:** no numbered scenario gates this phase. It is gated by the "the LLM cannot
 judge" property, proven by test.

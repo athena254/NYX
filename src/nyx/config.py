@@ -65,9 +65,26 @@ class Settings(BaseSettings):
     llm_protocol: Literal["openai", "anthropic"] = "openai"
     llm_base_url: str = "http://127.0.0.1:3000"
     llm_api_key: SecretStr | None = None
-    llm_timeout_seconds: float = Field(default=120.0, gt=0)
+    # Measured 2026-10-21 against qwen3.5:0.8b: a reasoning model spends its budget on a
+    # `reasoning` field the adapter ignores, and one turn took 2m07s -- past a 120s default.
+    # 300s is one call with headroom, not a guess at how long a model "should" take.
+    llm_timeout_seconds: float = Field(default=300.0, gt=0)
     llm_max_retries: int = Field(default=0, ge=0)
     llm_max_tool_rounds: int = Field(default=8, ge=1, le=20)
+    # Telegram front-end (Phase 7 slice 6.4). Disabled by default; when enabled it refuses to
+    # start without a token and an explicit allowlist, so a bot can never serve strangers.
+    telegram_enabled: bool = False
+    telegram_bot_token: SecretStr | None = None
+    telegram_allowed_user_ids: list[int] = Field(default_factory=list)
+    telegram_allowed_chat_ids: list[int] = Field(default_factory=list)
+    telegram_require_private_chat: bool = True
+    telegram_max_message_length: int = Field(default=4096, ge=1)
+    telegram_api_base: str = "https://api.telegram.org"
+    telegram_timeout_seconds: float = Field(default=30.0, gt=0)
+    telegram_poll_timeout_seconds: int = Field(default=30, ge=1, le=300)
+    telegram_rate_limit_requests: int = Field(default=20, ge=1)
+    telegram_rate_limit_window_seconds: float = Field(default=60.0, gt=0)
+    telegram_actor_prefix: str = "telegram:"
     audit_verify_on_startup: bool = True
 
     @model_validator(mode="after")
@@ -84,6 +101,18 @@ class Settings(BaseSettings):
                 "NYX_LLM_ENABLED=true requires NYX_LLM_MODEL to be set; "
                 "the chat shell will not guess a model"
             )
+        if self.telegram_enabled:
+            # Fail closed, and say which variable is missing. A bot with no allowlist is a bot
+            # that answers anyone who finds it, which is the one thing it must never do.
+            if self.telegram_bot_token is None:
+                raise ValueError(
+                    "NYX_TELEGRAM_ENABLED=true requires NYX_TELEGRAM_BOT_TOKEN to be set"
+                )
+            if not self.telegram_allowed_user_ids:
+                raise ValueError(
+                    "NYX_TELEGRAM_ENABLED=true requires NYX_TELEGRAM_ALLOWED_USER_IDS "
+                    "to list at least one Telegram user id; the bot refuses to serve strangers"
+                )
         return self
 
     def safe_effective_config(self) -> dict[str, Any]:

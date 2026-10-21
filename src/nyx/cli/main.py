@@ -7,6 +7,7 @@ the same :class:`IngestionService` as the HTTP API; it does not write to the dat
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -31,6 +32,9 @@ from nyx.conversational.agent import (
 from nyx.conversational.client import NyxClient, NyxClientError
 from nyx.conversational.llm import build_client
 from nyx.conversational.mcp_server import tool_names as mcp_tool_names
+from nyx.conversational.telegram.adapter import TelegramError
+from nyx.conversational.telegram.bot import TelegramBot
+from nyx.conversational.telegram.config import TelegramConfig
 from nyx.critics import register_storage_backed
 from nyx.critics.registry import CriticRegistryError, list_critics
 from nyx.disputes.service import (
@@ -83,6 +87,7 @@ evidence_app = typer.Typer(help="Register evidence items.", no_args_is_help=True
 critic_app = typer.Typer(help="List and run the deterministic critics.", no_args_is_help=True)
 finding_app = typer.Typer(help="List and inspect findings.", no_args_is_help=True)
 chat_app = typer.Typer(help="Talk to NYX.", no_args_is_help=True)
+telegram_app = typer.Typer(help="Run the Telegram front-end.", no_args_is_help=True)
 
 app.add_typer(system_app, name="system")
 app.add_typer(ingest_app, name="ingest")
@@ -91,6 +96,7 @@ app.add_typer(evidence_app, name="evidence")
 app.add_typer(critic_app, name="critic")
 app.add_typer(finding_app, name="finding")
 app.add_typer(chat_app, name="chat")
+app.add_typer(telegram_app, name="telegram")
 
 
 @app.callback()
@@ -1007,6 +1013,163 @@ def _build_agent(*, actor: str) -> ChatAgent:
         actor=actor,
         max_rounds=settings.llm_max_tool_rounds,
     )
+
+
+# --------------------------------------------------------------------------- telegram
+
+
+def _require_telegram() -> Settings:
+    """Refuse to start the bot unless it is configured, naming the missing variable.
+
+    ``Settings`` raises on ``NYX_TELEGRAM_ENABLED=true`` without a token or an allowlist,
+    so the raw ``ValidationError`` is caught and re-reported as a structured refusal. A bot
+    that starts without an allowlist is a bot that answers anyone who finds it, which is
+    the one thing it must never do.
+    """
+
+    try:
+        settings = Settings()
+    except ValidationError as exc:
+        message = str(exc)
+        if "NYX_TELEGRAM_BOT_TOKEN" in message:
+            _chat_refuse(
+                "NYX_TELEGRAM_BOT_TOKEN is not set; write it into .env. "
+                "The bot will not run without a token.",
+                True,
+            )
+        if "NYX_TELEGRAM_ALLOWED_USER_IDS" in message:
+            _chat_refuse(
+                "NYX_TELEGRAM_ALLOWED_USER_IDS is not set; list at least one Telegram user id "
+                "in .env. The bot refuses to serve strangers.",
+                True,
+            )
+        _chat_refuse(f"invalid NYX configuration: {message.splitlines()[0]}", True)
+    if not settings.telegram_enabled:
+        _chat_refuse(
+            "NYX_TELEGRAM_ENABLED is false. Set it to true in .env, with "
+            "NYX_TELEGRAM_BOT_TOKEN and NYX_TELEGRAM_ALLOWED_USER_IDS.",
+            True,
+        )
+    return settings
+
+
+def _telegram_config(settings: Settings) -> TelegramConfig:
+    """Turn NYX settings into the bot's own config, extracting the token exactly once."""
+
+    assert settings.telegram_bot_token is not None  # nosec B101 - _require_telegram() guarantees this
+    return TelegramConfig(
+        bot_token=settings.telegram_bot_token.get_secret_value(),
+        api_base=settings.telegram_api_base,
+        allowed_user_ids=frozenset(settings.telegram_allowed_user_ids),
+        allowed_chat_ids=frozenset(settings.telegram_allowed_chat_ids),
+        require_private_chat=settings.telegram_require_private_chat,
+        max_message_length=settings.telegram_max_message_length,
+        timeout_seconds=settings.telegram_timeout_seconds,
+        poll_timeout_seconds=settings.telegram_poll_timeout_seconds,
+        rate_limit_requests=settings.telegram_rate_limit_requests,
+        rate_limit_window_seconds=settings.telegram_rate_limit_window_seconds,
+        actor_prefix=settings.telegram_actor_prefix,
+    )
+
+
+def _build_telegram_bot() -> TelegramBot:
+    """Build the bot from settings, checking both NYX and the model are usable first."""
+
+    _require_telegram()
+    _require_llm()
+    settings = Settings()
+    assert settings.telegram_bot_token is not None  # nosec B101
+    assert settings.llm_model is not None  # nosec B101
+    llm_config = build_llm_config(
+        protocol=settings.llm_protocol,
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key.get_secret_value() if settings.llm_api_key else None,
+        model=settings.llm_model,
+        timeout_seconds=settings.llm_timeout_seconds,
+        max_retries=settings.llm_max_retries,
+    )
+    client = NyxClient(base_url=f"http://{settings.host}:{settings.port}")
+    try:
+        client.list_systems(limit=1)
+    except NyxClientError as exc:
+        _chat_refuse(
+            f"NYX is not reachable at {client.base_url} ({exc.code}). "
+            "Start it with: uv run python -m uvicorn nyx.api.app:create_app --factory",
+            True,
+        )
+    # The bot inherits the chat agent's safety property, but it is asserted here as well: a
+    # bot is a new entry point, and a judge-capable tool must fail the build, not ship.
+    assert_no_judge_tools(mcp_tool_names())
+    llm = build_client(llm_config)
+
+    def agent_factory(actor: str) -> ChatAgent:
+        return ChatAgent(
+            llm,
+            client,
+            actor=actor,
+            max_rounds=settings.llm_max_tool_rounds,
+        )
+
+    return TelegramBot(_telegram_config(settings), agent_factory=agent_factory)
+
+
+@telegram_app.command("check")
+def telegram_check(
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Verify the bot's configuration and that Telegram accepts its token."""
+
+    bot = _build_telegram_bot()
+
+    async def _probe() -> dict[str, Any]:
+        try:
+            return await bot.adapter.get_me()
+        finally:
+            await bot.adapter.close()
+
+    try:
+        me = asyncio.run(_probe())
+    except TelegramError as exc:
+        _chat_refuse(f"Telegram rejected the bot token ({exc.kind}).", json_output)
+        return
+
+    payload = {
+        "bot": {
+            "id": me.get("id"),
+            "username": me.get("username"),
+            "first_name": me.get("first_name"),
+        },
+        "config": bot.describe(),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    typer.echo(f"bot: @{payload['bot']['username']} (id {payload['bot']['id']})")
+    typer.echo(json.dumps(payload["config"], indent=2, sort_keys=True))
+
+
+@telegram_app.command("serve")
+def telegram_serve(
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Poll Telegram and answer messages until stopped (Ctrl-C)."""
+
+    bot = _build_telegram_bot()
+    if json_output:
+        typer.echo(json.dumps({"status": "starting", "config": bot.describe()}, indent=2))
+    else:
+        typer.echo("NYX Telegram bot. Ctrl-C to stop.", err=True)
+
+    async def _serve() -> None:
+        try:
+            await bot.run()
+        finally:
+            await bot.close()
+
+    try:
+        asyncio.run(_serve())
+    except KeyboardInterrupt:
+        typer.echo("stopped.", err=True)
 
 
 if __name__ == "__main__":

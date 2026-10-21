@@ -278,3 +278,90 @@ The Telegram bot — the last half of 6.4, and the piece that makes NYX usable f
 The-Agency's proven stack (handler, rate limiting, budget, error privacy) by pattern, never by
 vendoring its source.
 
+
+
+---
+
+## Update — 21 October 2026 (third session)
+
+Phase 7 slice **6.4 is complete**: the Telegram bot is built, tested, and proven live. The chat
+timeout default is now **300s**. Head `d0ce133` was the previous session's tip.
+
+### 6.4 — the Telegram bot
+
+`src/nyx/conversational/telegram/` — five small modules, each with one job:
+
+| Module | Job |
+| --- | --- |
+| `config.py` | The bot's own config (plain values, no `Settings`), and the actor identity derivation. |
+| `admission.py` | Who may talk to the bot. Private chats only, an explicit allowlist, chat id must match sender. |
+| `rate_limit.py` | A bounded per-user sliding-window limiter (pattern ported from The-Agency's beta guard). |
+| `adapter.py` | The Bot API over `httpx`, built so the token can never reach an error message. |
+| `bot.py` | The poll loop: admit, answer, reply, and never leak. |
+
+The bot drives the **same `ChatAgent`** as `nyx chat`. That is the whole design: a bot is a second
+entry point onto one tool surface, not a second implementation of it, so the safety property is
+inherited rather than restated. `nyx telegram serve` and `nyx telegram check` are the commands.
+
+Three properties worth recording, because they are where a bot usually goes wrong:
+
+1. **A redelivered update is not replayed.** Telegram retries updates, and a retried update that
+   filed a rebuttal would file it twice. Update ids are remembered *before* anything happens.
+2. **A reply goes only to the chat the message came from.** A chat id found in the message text
+   is never used as a destination.
+3. **Nothing internal is ever sent.** A failure produces a fixed sentence; the traceback goes to
+   the server log. The token lives in the Bot API URL path, so every failure path raises without
+   it — asserted directly by test, not by inspection.
+
+**Fail closed, and for a stronger reason than the chat shell.** `NYX_TELEGRAM_ENABLED=true` with no
+token, or no `NYX_TELEGRAM_ALLOWED_USER_IDS`, is a `ValidationError`. A bot without an allowlist is
+a bot that answers anyone who finds it.
+
+### Defects found
+
+| # | Defect | Layer |
+| --- | --- | --- |
+| 1 | **The poll loop had no backoff.** A persistent `getUpdates` failure (a revoked token, a network partition) became a hot loop hammering the Bot API as fast as it could turn. Now waits `POLL_RETRY_SECONDS` (5s). | conversational |
+| 2 | The probe's own fake server matched `getUpdates` on the raw path, so the query string made it miss and every poll 404'd. **A probe bug, not a product bug** — recorded because it is the same shape as the handoff's lesson. | probe |
+
+**#1 was found by the live probe, not by the 65 unit tests.** That is the discipline the handoff
+asks for: `scripts/probe_telegram_live.py` stands up a real HTTP server speaking just enough of
+the Bot API and drives a real bot against it over a real socket.
+
+### The timeout default is now 300s
+
+`NYX_LLM_TIMEOUT_SECONDS` default raised `120` → **`300`** in `src/nyx/config.py`, `.env.example`,
+and `docs/conversational-interface.md`. Measured against `qwen3.5:0.8b`: one turn took **2m07s**, so
+120s is *just* too short and the turn failed as a timeout rather than returning the answer it had
+already computed. 300s is one call with headroom, not a guess at how long a model "should" take.
+
+### Gates (21 October 2026)
+
+`uv run pytest` **405 passed** · `uv run mypy` clean (102 files) · `uv run ruff check .` clean ·
+`uv run ruff format --check .` 161 files formatted · `uv run alembic upgrade head` clean.
+
+`scripts/probe_telegram_live.py` passes: one admitted user answered once, a stranger and a group
+chat refused, a redelivered update not replayed, the token absent from every outbound payload.
+
+### What is left in Phase 7
+
+| Item | State |
+| --- | --- |
+| 6.1 Harden the CLI for other systems | **done** |
+| 6.2 NYX MCP server | **done** — live-verified |
+| 6.3 LLM provider adapter | **done** — unit-tested, two protocols |
+| 6.4 Conversational front-end | **done** — CLI chat + Telegram bot |
+| 6.6 Documentation | **done** |
+| dmr-X gateway | not running; blocks live proof of 6.3 against the real backend |
+
+**dmr-X is the only remaining verification gap in Phase 7.** Everything else is built and proven.
+Until the gateway runs, 6.3 has been exercised against Ollama over the same OpenAI-compatible wire,
+not against dmr-X itself.
+
+### Next move
+
+1. **dmr-X** — start it, then point `NYX_LLM_BASE_URL` at its gateway and run `nyx chat` and
+   `nyx telegram check` against the real backend. That closes 6.3.
+2. **Phase 4** — security hardening: real authentication, rate limits on the API, audit-chain
+   verification. This is the other large block of remaining work, and what makes NYX safe to expose
+   beyond localhost.

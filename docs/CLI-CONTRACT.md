@@ -59,7 +59,7 @@ collections:
 
 ## Commands
 
-All 17 commands, with the arguments that are required:
+All 19 commands, with the arguments that are required:
 
 | Command | Required input |
 | --- | --- |
@@ -80,8 +80,10 @@ All 17 commands, with the arguments that are required:
 | `nyx doctor` | — |
 | `nyx chat ask` | question |
 | `nyx chat shell` | — (interactive) |
+| `nyx telegram check` | — |
+| `nyx telegram serve` | — (long-running; Ctrl-C to stop) |
 
-## Two behaviours worth knowing
+## Three behaviours worth knowing
 
 **A file that cannot be opened is `INVALID_REQUEST`, not a traceback.** `nyx ingest event missing.json
 --json` exits `1` with a structured error naming the path, the same as a malformed body. Before
@@ -91,6 +93,12 @@ Phase 7 slice 6.1 this raised `FileNotFoundError` and printed a traceback.
 `INVALID_REQUEST` and names the missing variable — it does not guess a model or print a pydantic
 traceback. The same holds for an unreachable NYX: the message names the URL and the command to start
 it.
+
+**`nyx telegram` fails closed too, and for a stronger reason.** With `NYX_TELEGRAM_ENABLED=true`
+but no token, or no `NYX_TELEGRAM_ALLOWED_USER_IDS`, it exits `1` naming the missing variable. A
+bot without an allowlist is a bot that answers anyone who finds it, so the allowlist is required
+rather than defaulted. `nyx telegram check` is the dry run: it calls `getMe` and reports the bot's
+identity and its effective, secret-safe configuration without sending anything to a user.
 
 ## A note on `--json` and stderr
 
