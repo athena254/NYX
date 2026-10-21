@@ -43,6 +43,8 @@ class ErrorCode(StrEnum):
     DATABASE_NOT_READY = "DATABASE_NOT_READY"
     INTERNAL_ERROR = "INTERNAL_ERROR"
     REDACTION_FAILED = "REDACTION_FAILED"
+    ADAPTER_DISABLED = "ADAPTER_DISABLED"
+    ADAPTER_UNAVAILABLE = "ADAPTER_UNAVAILABLE"
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,14 @@ _CATALOGUE: dict[ErrorCode, ErrorSpec] = {
     ErrorCode.INTERNAL_ERROR: ErrorSpec(500, True, "An unexpected internal error occurred."),
     ErrorCode.REDACTION_FAILED: ErrorSpec(
         500, False, "A payload could not be safely redacted; the write was refused."
+    ),
+    # An optional adapter being off is not a required dependency being down. Reusing
+    # DEPENDENCY_UNAVAILABLE would report a disabled adapter as an outage.
+    ErrorCode.ADAPTER_DISABLED: ErrorSpec(
+        409, False, "The requested adapter is registered but not enabled in this deployment."
+    ),
+    ErrorCode.ADAPTER_UNAVAILABLE: ErrorSpec(
+        503, True, "An enabled adapter could not reach the system it observes."
     ),
 }
 

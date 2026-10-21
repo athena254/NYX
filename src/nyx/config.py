@@ -115,6 +115,24 @@ class Settings(BaseSettings):
     retention_extended_days: int = Field(default=365, ge=1)
     retention_derived_metadata_days: int = Field(default=730, ge=1)
 
+    # --- Phase 5: optional adapters (ADR 0008) ----------------------------------
+    # Every adapter is off by default. Enabling one is an explicit deployment decision,
+    # never a prerequisite for core NYX: with no adapter named in `enabled_adapters` the
+    # service behaves exactly as it did before Phase 5.
+    #
+    # The Git/CI token is NOT a setting. `git_ci_token_env` names the environment variable
+    # that holds it, and the value is read once at client construction -- so a token never
+    # enters effective configuration, a log line, or a health detail.
+    git_ci_provider: Literal["github", "local_git", "fixture"] = "github"
+    git_ci_api_base_url: str = "https://api.github.com"
+    git_ci_repository: str = ""
+    git_ci_token_env: str | None = None
+    git_ci_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    git_ci_max_runs_per_fetch: int = Field(default=10, ge=1, le=100)
+    # Must agree with `evidence_allow_private_urls`. Two switches that disagree about what
+    # is fetchable is how an SSRF guard and an adapter end up with different answers.
+    git_ci_allow_private_targets: bool = False
+
     @model_validator(mode="after")
     def _check_safe_auth_boundary(self) -> Self:
         if self.host not in _LOOPBACK_HOSTS and self.auth_mode == "none":
@@ -160,6 +178,38 @@ class Settings(BaseSettings):
                     "NYX_TELEGRAM_ENABLED=true requires NYX_TELEGRAM_ALLOWED_USER_IDS "
                     "to list at least one Telegram user id; the bot refuses to serve strangers"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _check_adapter_configuration(self) -> Self:
+        """Fail closed on a Git/CI adapter that is switched on but cannot work.
+
+        These are misconfigurations, not degraded states: an adapter with no target
+        repository has nothing to observe, and a GitHub adapter with no token source
+        cannot read a private repository. Refusing at startup names the variable instead
+        of surfacing later as an empty observation set.
+        """
+
+        if "git-ci" not in self.enabled_adapters:
+            return self
+        if not self.git_ci_repository:
+            raise ValueError(
+                "NYX_ENABLED_ADAPTERS names 'git-ci' but NYX_GIT_CI_REPOSITORY is empty; "
+                "an adapter with no target repository has nothing to observe"
+            )
+        if self.git_ci_provider == "github" and self.git_ci_token_env is None:
+            raise ValueError(
+                "NYX_ENABLED_ADAPTERS names 'git-ci' with provider 'github' but "
+                "NYX_GIT_CI_TOKEN_ENV is not set; a GitHub adapter with no token source "
+                "cannot read a private repository, so this is a misconfiguration rather "
+                "than a degraded adapter"
+            )
+        if self.git_ci_allow_private_targets and not self.evidence_allow_private_urls:
+            raise ValueError(
+                "NYX_GIT_CI_ALLOW_PRIVATE_TARGETS=true requires "
+                "NYX_EVIDENCE_ALLOW_PRIVATE_URLS=true; the adapter and the SSRF guard "
+                "must agree about which targets are fetchable"
+            )
         return self
 
     def safe_effective_config(self) -> dict[str, Any]:

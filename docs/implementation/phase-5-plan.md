@@ -424,6 +424,21 @@ satisfies `Adapter` structurally is accepted and one missing `normalize` is not 
 - `src/nyx/error_codes.py`
 - `docs/adr/0008-adapter-boundary-and-disablement.md` (new)
 - `tests/contract/test_adapter_registry.py` (new)
+- `tests/contract/test_adapter_boundary.py` (new) — gate G7
+
+**As-built deviations from §2, all deliberate**
+
+1. **`enabled_adapters: list[str]` is the deployment filter, not a new `adapter_enabled: dict[str, bool]`.**
+   `Settings` already carried `enabled_adapters` from Phase 1b. A second setting for the same
+   decision is two sources of truth, so the dict was dropped. `AdapterRegistry(is_enabled=...)`
+   is injected from it.
+2. **`Adapter` carries `permissions`, `can_observe`, and `cannot_observe` as attributes.** §2.2
+   listed them only on `AdapterDescriptor`, but the descriptor has to be built *from* the
+   adapter, so the adapter must declare them. mypy strict enforces it structurally.
+3. **`registered()` was added, and `enabled()` filters.** §2.2 had only `enabled()`. Reporting
+   "registered but disabled" needs both, and §6.1 uses both terms.
+4. **`states()` probes only enabled adapters.** A disabled adapter is not constructed, so there
+   is nothing to probe — and probing one would mean constructing it to hang a health check on it.
 
 **FORBIDDEN files** (touching any of these is a collision and a failed slice)
 
