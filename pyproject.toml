@@ -14,6 +14,9 @@ dependencies = [
     "typer>=0.15",
     "httpx>=0.27",
     "python-json-logger>=2.0",
+    # src/nyx/critics/llm.py validates structured model output against a JSON Schema. It was a
+    # dev dependency, which would break at import the moment Phase 6 wires the critic in.
+    "jsonschema>=4.23",
 ]
 
 [project.optional-dependencies]
@@ -32,7 +35,6 @@ dev = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
     "hypothesis>=6.118",
-    "jsonschema>=4.23",
     "ruff>=0.8",
     "mypy>=1.13",
     "types-requests",
