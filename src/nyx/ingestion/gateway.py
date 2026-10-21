@@ -430,6 +430,7 @@ class IngestionGateway:
                 created_at=claim_input.created_at or utc_now(),
                 source_event_ids=list(claim_input.source_event_ids),
                 status=claim_input.status,
+                retention_class=claim_input.retention_class,
             )
         except ValidationError as exc:
             details = _field_details(exc)

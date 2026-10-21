@@ -29,6 +29,7 @@ class ClaimRepository:
             created_at=claim.created_at,
             source_event_ids=list(claim.source_event_ids),
             status=claim.status,
+            retention_class=claim.retention_class,
         )
         self._session.add(row)
         return claim
@@ -84,5 +85,6 @@ def _to_domain(row: ClaimRow) -> Claim:
             "created_at": as_utc(row.created_at),
             "source_event_ids": row.source_event_ids,
             "status": row.status,
+            "retention_class": row.retention_class,
         }
     )

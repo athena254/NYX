@@ -100,6 +100,9 @@ class ClaimInput(NyxModel):
     created_at: UtcDatetime | None = None
     source_event_ids: list[Identifier] = Field(default_factory=list, max_length=64)
     status: ClaimStatus = ClaimStatus.UNASSESSED
+    # Defaults to the operational default in docs/privacy-and-retention.md §4, so a producer that
+    # does not classify its claim still lands in a class the retention policy can act on.
+    retention_class: RetentionClass = RetentionClass.STANDARD
     producer_event_id: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
 
 

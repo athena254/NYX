@@ -103,6 +103,9 @@ class Capability(StrEnum):
     DISPOSITION = "findings.disposition"
     ACCEPT_RISK = "findings.accept_risk"
     ADMINISTER = "findings.administer"
+    # Retention redaction and purge (Phase 4). Separate from ADMINISTER because a deployment may
+    # want an operator who can close findings without one who can erase record content.
+    RETENTION = "retention.redact"
     EVIDENCE_READ = "evidence.read"
     EVIDENCE_RESTRICTED = "evidence.restricted"
 

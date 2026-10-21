@@ -50,7 +50,7 @@ from nyx.disputes.verification import (
     VerificationNotPermittedError,
     default_allowlist,
 )
-from nyx.domain.base import PrincipalRef
+from nyx.domain.base import PrincipalRef, utc_now
 from nyx.domain.enums import (
     DispositionOutcome,
     FindingStatus,
@@ -61,6 +61,7 @@ from nyx.domain.enums import (
 from nyx.domain.ids import new_request_id
 from nyx.error_codes import ErrorCode
 from nyx.findings.lifecycle import (
+    Capability,
     CapabilityDeniedError,
     InvalidLifecycleTransitionError,
 )
@@ -68,6 +69,9 @@ from nyx.findings.service import FindingQuery, FindingService
 from nyx.ingestion.errors import IngestResult, StructuredError
 from nyx.ingestion.limits import LimitExceededError
 from nyx.ingestion.service import IngestionService
+from nyx.retention.policy import RetentionPolicy
+from nyx.retention.redaction import RedactionDeniedError, RedactionService, RetentionAuthoriser
+from nyx.retention.service import RetentionService
 from nyx.storage.db import (
     create_engine_from_settings,
     create_session_factory,
@@ -91,6 +95,9 @@ finding_app = typer.Typer(help="List and inspect findings.", no_args_is_help=Tru
 chat_app = typer.Typer(help="Talk to NYX.", no_args_is_help=True)
 telegram_app = typer.Typer(help="Run the Telegram front-end.", no_args_is_help=True)
 audit_app = typer.Typer(help="Verify the append-only audit history.", no_args_is_help=True)
+retention_app = typer.Typer(
+    help="Retention policy and the redaction workflow.", no_args_is_help=True
+)
 
 app.add_typer(system_app, name="system")
 app.add_typer(ingest_app, name="ingest")
@@ -101,6 +108,7 @@ app.add_typer(finding_app, name="finding")
 app.add_typer(chat_app, name="chat")
 app.add_typer(telegram_app, name="telegram")
 app.add_typer(audit_app, name="audit")
+app.add_typer(retention_app, name="retention")
 
 
 @app.callback()
@@ -456,11 +464,15 @@ def doctor(
     integrations = [*settings.enabled_adapters]
     if settings.llm_enabled:
         integrations.insert(0, "llm")
+    # An enabled optional integration is a *configuration*, not a fault. This check used to record
+    # a failure for any configured integration while never verifying availability, so a correct
+    # deployment failed `nyx doctor`. It now reports what is configured and leaves the
+    # reachability probe to a future change rather than claiming an availability it never checked.
     record(
         "optional_integrations",
-        not integrations,
-        ErrorCode.DEPENDENCY_UNAVAILABLE.value,
-        "none enabled" if not integrations else f"configured but unavailable: {integrations}",
+        True,
+        None,
+        "none enabled" if not integrations else f"configured: {', '.join(integrations)}",
     )
 
     record("api_app", *_check_api_app())
@@ -1239,6 +1251,151 @@ def telegram_serve(
         asyncio.run(_serve())
     except KeyboardInterrupt:
         typer.echo("stopped.", err=True)
+
+
+# --------------------------------------------------------------------------- retention
+
+
+class _StoreBackedRetentionAuthoriser:
+    """Answer the retention capability question from the configured principal store.
+
+    :class:`~nyx.retention.redaction.RedactionService` asks a narrow question (``may_redact``)
+    because the lifecycle capability enum predates retention. This adapter is where that question is
+    answered with a real capability, so the retention workflow and the rest of NYX share one
+    authorisation model instead of growing a second one.
+    """
+
+    def __init__(self, store: CapabilityStore) -> None:
+        self._store = store
+
+    def may_redact(self, actor: PrincipalRef, target_type: str, action: str) -> bool:
+        return Capability.RETENTION in self._store.capabilities_for(actor.id)
+
+
+def _retention_authoriser(settings: Settings) -> RetentionAuthoriser:
+    return _StoreBackedRetentionAuthoriser(CapabilityStore.load_from_settings(settings))
+
+
+@retention_app.command("purge")
+def retention_purge(
+    apply: bool = typer.Option(
+        False, "--apply", help="Actually purge. Without this, only report what would be purged."
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Tombstone payloads whose retention period has expired.
+
+    Destructive, so it is opt-in twice over: ``NYX_RETENTION_PURGE_ENABLED`` must be true for
+    ``--apply``, and without ``--apply`` nothing is written -- not even an audit entry, because an
+    audit entry is a write. ``legal_hold`` records are never purged.
+    """
+
+    settings = Settings()
+    if apply and not settings.retention_purge_enabled:
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.FORBIDDEN.value,
+                message=(
+                    "retention purge is disabled; set NYX_RETENTION_PURGE_ENABLED=true to enable "
+                    "it. A dry run needs no flag."
+                ),
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1)
+
+    engine = create_engine_from_settings(settings)
+    factory = create_session_factory(engine)
+    try:
+        with session_scope(factory) as session:
+            report = RetentionService(
+                session,
+                policy=RetentionPolicy.from_settings(settings),
+                actor=_cli_actor(),
+            ).purge_due(now=utc_now(), dry_run=not apply)
+    finally:
+        engine.dispose()
+
+    payload = {
+        "scanned": report.scanned,
+        "purged": report.purged,
+        "skipped_legal_hold": report.skipped_legal_hold,
+        "dry_run": report.dry_run,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if report.dry_run:
+        typer.echo(
+            f"dry run: {report.purged} of {report.scanned} records would be purged "
+            f"({report.skipped_legal_hold} on legal hold)"
+        )
+        return
+    typer.echo(
+        f"purged {report.purged} of {report.scanned} records "
+        f"({report.skipped_legal_hold} on legal hold)"
+    )
+
+
+@retention_app.command("redact")
+def retention_redact(
+    record_id: str = typer.Option(..., "--record-id", help="Stable id of the record."),
+    target_type: str = typer.Option(
+        "evidence",
+        "--target-type",
+        help="event | claim | evidence. Append-only records are refused.",
+    ),
+    action: str = typer.Option(
+        "payload_redacted", "--action", help="payload_redacted | hash_removed."
+    ),
+    reason: str = typer.Option(..., "--reason", help="Why the content is being removed."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Tombstone one record's payload, preserving the fact of the change.
+
+    The row is not deleted: its identity and relationships survive, which is what keeps a
+    disposition that relied on the evidence inspectable. Findings, rebuttals, dispositions,
+    verification jobs, and policy versions are append-only and cannot be named here.
+    """
+
+    settings = Settings()
+    engine = create_engine_from_settings(settings)
+    factory = create_session_factory(engine)
+    try:
+        with session_scope(factory) as session:
+            outcome = RedactionService(
+                session,
+                actor=_cli_actor(),
+                allowlist=_retention_authoriser(settings),
+            ).redact(
+                target_type=target_type,
+                target_id=record_id,
+                action=action,
+                reason=reason,
+            )
+    except RedactionDeniedError as exc:
+        _emit_error(
+            StructuredError(code=exc.code.value, message=exc.reason, request_id="cli"),
+            json_output,
+        )
+        raise typer.Exit(code=1) from exc
+    finally:
+        engine.dispose()
+
+    payload = {
+        "record_id": outcome.record_id,
+        "action": outcome.action,
+        "fields_affected": list(outcome.fields_affected),
+        "audit_entry_id": outcome.audit_entry_id,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    typer.echo(
+        f"redacted {outcome.record_id}: {outcome.action} on "
+        f"{', '.join(outcome.fields_affected)} (audit {outcome.audit_entry_id})"
+    )
 
 
 if __name__ == "__main__":

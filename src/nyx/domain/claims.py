@@ -12,7 +12,7 @@ from typing import Annotated, Self
 from pydantic import Field, StringConstraints, model_validator
 
 from nyx.domain.base import Identifier, NyxModel, SchemaVersion, Scope, UtcDatetime, utc_now
-from nyx.domain.enums import ClaimStatus, ClaimType
+from nyx.domain.enums import ClaimStatus, ClaimType, RetentionClass
 from nyx.domain.ids import new_claim_id
 
 
@@ -29,6 +29,9 @@ class Claim(NyxModel):
     created_at: UtcDatetime = Field(default_factory=utc_now)
     source_event_ids: list[Identifier] = Field(default_factory=list, max_length=64)
     status: ClaimStatus = ClaimStatus.UNASSESSED
+    # Carries the retention class the producer declared. Without it a claim cannot be classified
+    # for purge, so the retention policy silently skips every claim.
+    retention_class: RetentionClass = RetentionClass.STANDARD
 
     @model_validator(mode="after")
     def _require_scoped_claim(self) -> Self:

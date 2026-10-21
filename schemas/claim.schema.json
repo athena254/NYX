@@ -59,6 +59,18 @@
         "refuted",
         "inconclusive"
       ]
+    },
+    "retention_class": {
+      "type": "string",
+      "enum": [
+        "ephemeral",
+        "standard",
+        "extended",
+        "legal_hold",
+        "derived_metadata"
+      ],
+      "default": "standard",
+      "description": "The retention class the producer declared. Required for the retention policy to classify the claim for purge; defaults to the operational default in docs/privacy-and-retention.md 4."
     }
   },
   "$defs": {

@@ -69,6 +69,12 @@ class EventRow(Base):
     trust_class: Mapped[str] = mapped_column(String(32), nullable=False)
     labels: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     retention_class: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Retention markers (ADR 0003, privacy-and-retention §5). These are the only columns a
+    # tombstone may write; ``redacted_at`` is null until the record is redacted.
+    redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    redacted_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    redaction_reason: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    redaction_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class ClaimRow(Base):
@@ -86,6 +92,12 @@ class ClaimRow(Base):
     )
     source_event_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    retention_class: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Retention markers (ADR 0003, privacy-and-retention §5); see ``EventRow``.
+    redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    redacted_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    redaction_reason: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    redaction_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class EvidenceRow(Base):
@@ -115,6 +127,11 @@ class EvidenceRow(Base):
     sensitivity: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     access_policy_ref: Mapped[str] = mapped_column(String(256), nullable=False)
     retention_class: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Retention markers (ADR 0003, privacy-and-retention §5); see ``EventRow``.
+    redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    redacted_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    redaction_reason: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    redaction_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class IdempotencyRow(Base):
