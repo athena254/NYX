@@ -502,8 +502,8 @@ is not permitted without privilege), not a stale SKIP.
   workflow builds and scans it.
 - **Rate limiting is per-process.** A multi-process deployment needs a shared store.
 - **Scenario 19 is checked for the stub path only.** The live provider adapter is Phase 6.
-- **Scenario 24 is still unchecked**, and it is not Phase 4's: C-010 is still not enforced as a gate
-  on `confirmed`.
+- **Scenario 24 is now checked.** C-010 is enforced as a gate on `confirmed` and
+  `partially_confirmed`, so the last unchecked box is closed.
 - **`nyx doctor` does not probe an LLM endpoint's reachability.** It reports what is configured and
   no longer claims an availability it never verified.
 
@@ -515,3 +515,61 @@ is not permitted without privilege), not a stale SKIP.
 2. **Scenario 24**, if it is wanted: enforce C-010 as a gate on `confirmed`. It is the last
    unchecked box and it is a Phase 2 obligation.
 3. **Build the image somewhere with Docker**, to close the one unverified step in CI.
+
+---
+
+## Update — 21 October 2026 (sixth session): scenario 24 is closed
+
+The last unchecked acceptance box is closed, and four stale status entries were corrected.
+
+### Scenario 24 — C-010 is now a gate, not only a critic
+
+`nyx.findings.lifecycle` gained `_SELF_CONSISTENCY_GATED` (`confirmed`, `partially_confirmed`) and a
+`self_consistency_gate` seam. The default gate runs C-010's checks for the finding on the caller's
+own transaction, so the invariant is enforced with **no wiring at all** — there is no off switch.
+
+Two design decisions worth recording:
+
+- **The gate is narrower than the critic.** C-010's standalone run is store-global by design: a
+  violation *anywhere* undermines trust in every confirmed finding. A **gate** has to be answerable
+  to the caller, so it runs the same three check helpers against the one finding being confirmed,
+  plus the audit-chain check, which is inherently store-global. The scope difference is documented
+  in both modules rather than left to be discovered.
+- **The import is lazy.** `nyx.critics.c010_nyx_self_consistency` imports `allowed_transitions` from
+  `nyx.findings.lifecycle`, so a module-level import back would be circular. The default gate imports
+  it inside the function.
+
+### Two fixture defects the gate found
+
+The gate refused findings the existing tests had always confirmed. Both were real inconsistencies in
+the fixtures, not faults in the gate:
+
+| # | Defect | Layer |
+| --- | --- | --- |
+| 1 | `tests/unit/test_finding_lifecycle.py` and `tests/integration/test_finding_lifecycle.py` cited evidence ids (`ev_test`, `ev_scenario_23`) that **no evidence row backed**. C-010 resolves a finding's evidence ids against the store, so every one of those findings was a self-consistency violation that nothing had ever detected. | tests |
+| 2 | The lifecycle tests built `FindingLifecycle` directly and so never exercised the gate. They do now, precisely because the gate has no off switch. | tests |
+
+### Status documents corrected
+
+| Document | Was | Now |
+| --- | --- | --- |
+| `roadmap.md` summary | Phase 7 "in progress" | done |
+| `task-checklist.md` step 12 | `[~]` — "chain verification is still Phase 4" | `[x]` |
+| `task-checklist.md` step 13 | `[~]` | `[x]` |
+| `task-checklist.md` step 14 | `[ ]` | `[x]` |
+| `task-checklist.md` step 16 | `[ ]` | `[~]` (Phase 4 stub only) |
+| `roadmap.md` Phase 2 | "capability seam is still DenyAll…", "step 12 remains open" | corrected |
+| `acceptance-tests.md` | scenario 24 `[ ]` | `[x]` |
+
+### Gates (21 October 2026)
+
+`uv run pytest` **552 passed, 1 skipped** · `uv run mypy` clean (120 files) · `uv run ruff check .`
+clean · `uv run ruff format --check .` 195 files formatted · `uv run alembic upgrade head` clean.
+
+`tmp/probes/probe_scenario_24_gate.py` — written outside the project's test helpers, against a real
+migrated database: **6 checks, all green**.
+
+### Next move
+
+**Phase 5 — integrations.** `docs/implementation/phase-5-plan.md` is being written; the Git/CI
+adapter is the first slice.

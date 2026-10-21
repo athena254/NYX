@@ -346,3 +346,34 @@ class NyxSelfConsistencyCritic:
             ),
             affected_system_ids=[context.scope.system_id],
         )
+
+
+def check_finding_consistency(session: Session, finding_id: str) -> list[str]:
+    """Run C-010's checks scoped to one stored finding.
+
+    The standalone critic (:meth:`NyxSelfConsistencyCritic.run`) is store-global by
+    design: a self-consistency violation *anywhere* undermines trust in every
+    confirmed finding. The lifecycle **gate** is narrower, because a gate has to be
+    answerable to the caller -- it reports why *this* finding may not be confirmed.
+    It runs the same three check helpers against one row, plus the audit-chain check,
+    which is inherently store-global (a broken chain anywhere breaks the evidence for
+    every record).
+
+    Returns the violation list; empty means the finding passes. This is the function
+    the lifecycle gate calls, so scenario 24 ("every confirmed finding passes the NYX
+    self-consistency critic") is upheld by a code path rather than by a test.
+    """
+
+    rows = list(session.scalars(select(FindingRow).where(FindingRow.id == finding_id)))
+    if not rows:
+        return [f"finding {finding_id} does not exist"]
+    row = rows[0]
+    runs = list(session.scalars(select(CriticRunRow).order_by(CriticRunRow.id)))
+    audits = list(session.scalars(select(AuditRow).order_by(AuditRow.sequence)))
+    evidence_ids = set(session.scalars(select(EvidenceRow.id)))
+
+    violations: list[str] = []
+    violations.extend(NyxSelfConsistencyCritic._check_audit_chain(audits))
+    violations.extend(NyxSelfConsistencyCritic._check_findings([row], runs, evidence_ids))
+    violations.extend(NyxSelfConsistencyCritic._check_transitions([row], audits))
+    return violations

@@ -438,6 +438,37 @@ _EDGE_RULES: dict[tuple[FindingStatus, FindingStatus], tuple[TransitionRule, ...
 }
 
 
+# ---------------------------------------------------------------------------
+# The self-consistency gate (acceptance scenario 24)
+# ---------------------------------------------------------------------------
+
+# A finding may not be *confirmed* unless it passes C-010's checks. The gate is a
+# seam for the same reason authorization is: this module must not import the critic
+# pack at module level (``nyx.critics.c010_`` imports ``allowed_transitions`` from
+# here, so that would be circular), and a test or a future deployment must be able
+# to substitute the check.
+SelfConsistencyGate = Callable[[Session, str], list[str]]
+
+# Both positive verdicts are gated: a partial confirmation is still a positive
+# verdict, so it must clear the same bar (SPEC §3.2 invariant 1, §6).
+_SELF_CONSISTENCY_GATED = frozenset({FindingStatus.CONFIRMED, FindingStatus.PARTIALLY_CONFIRMED})
+
+
+def _default_self_consistency_gate(session: Session, finding_id: str) -> list[str]:
+    """Run C-010's checks for one finding on the caller's own transaction.
+
+    Imported lazily because ``nyx.critics.c010_nyx_self_consistency`` imports
+    ``allowed_transitions`` from this module. The check runs on the *current*
+    session rather than opening a nested one: the transition has not been applied
+    yet, so the store it inspects is exactly the store the finding's recorded
+    history must explain.
+    """
+
+    from nyx.critics.c010_nyx_self_consistency import check_finding_consistency
+
+    return check_finding_consistency(session, finding_id)
+
+
 def allowed_transitions(status: FindingStatus) -> frozenset[FindingStatus]:
     """Return the states a finding in ``status`` may move to."""
     return _TRANSITIONS.get(status, frozenset())
@@ -448,11 +479,16 @@ def validate_transition(
     finding: Finding,
     request: TransitionRequest,
     checker: CapabilityChecker,
+    self_consistency_gate: SelfConsistencyGate | None = None,
 ) -> None:
     """Validate a transition request against the graph and the §6 rules.
 
     Raises :class:`CapabilityDeniedError` or
     :class:`InvalidLifecycleTransitionError` before any state is touched.
+
+    ``self_consistency_gate`` is the acceptance-scenario-24 check. When ``None``
+    the default runs C-010 against the finding on this session, so the invariant
+    is enforced unless a caller deliberately substitutes the gate.
     """
     target = request.target_status
 
@@ -474,6 +510,19 @@ def validate_transition(
         rule(session, finding, request)
     for rule in _RULES.get(target, ()):
         rule(session, finding, request)
+
+    # Acceptance scenario 24: every confirmed finding passes the NYX
+    # self-consistency critic. Runs *last*, so a failure the §6 rules already
+    # describe (no rationale, no supporting evidence) is reported with its own
+    # wording instead of being masked by a consistency violation.
+    if target in _SELF_CONSISTENCY_GATED:
+        violations = (self_consistency_gate or _default_self_consistency_gate)(session, finding.id)
+        if violations:
+            raise InvalidLifecycleTransitionError(
+                "safety invariant: the finding does not pass the NYX self-consistency "
+                f"check (C-010) and may not be moved to '{target.value}'; "
+                f"violations: {'; '.join(violations[:5])}"
+            )
 
 
 def _audit_reason(
@@ -520,11 +569,17 @@ class FindingLifecycle:
         session: Session,
         *,
         capability_checker: CapabilityChecker | None = None,
+        self_consistency_gate: SelfConsistencyGate | None = None,
         audit_writer: AuditWriter | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._session = session
         self._capability_checker = capability_checker or DenyAllCapabilityChecker()
+        # ``None`` means "use the default", which runs C-010. A caller passes a
+        # gate only to substitute the check (a test simulating a violation), never
+        # to skip it -- there is no off switch, because scenario 24 is an
+        # invariant, not a preference.
+        self._self_consistency_gate = self_consistency_gate
         self._audit_writer = audit_writer or AuditWriter(session)
         self._clock = clock
         self._findings = FindingRepository(session)
@@ -541,7 +596,13 @@ class FindingLifecycle:
         if finding is None:
             raise FindingNotFoundError(f"finding '{request.finding_id}' does not exist")
 
-        validate_transition(self._session, finding, request, self._capability_checker)
+        validate_transition(
+            self._session,
+            finding,
+            request,
+            self._capability_checker,
+            self._self_consistency_gate,
+        )
 
         previous = finding.status
         now = self._clock()

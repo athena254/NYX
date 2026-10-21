@@ -4,6 +4,14 @@ All 24 acceptance scenarios are listed below. A box may be checked only when the
 is run in CI or locally, and passes against the implementation. After the Phase 3 run, scenarios 1–12,
 14, 18, 22, and 23 are checked with the exact tests named below; all others remain unchecked.
 
+**Scenario 24 note (21 October 2026):** scenario 24 is now **checked**. C-010 is enforced as a gate
+on `confirmed` and `partially_confirmed` by `nyx.findings.lifecycle` (`_SELF_CONSISTENCY_GATED` plus
+the `self_consistency_gate` seam), so a finding that fails the self-consistency check cannot be
+confirmed. Verified by `tests/unit/test_scenario_24_self_consistency_gate.py` (7 tests) and
+`tmp/probes/probe_scenario_24_gate.py` (6 checks against a real migrated database, written outside
+the project's test helpers). The Phase 2 and Phase 4 notes below record why it was unchecked then;
+they are history, not current status.
+
 **Ownership rule:** the phase column is the first phase that must satisfy the scenario. A scenario
 marked “re-validated” must still pass in the later phase, but the earlier phase owns the first passing
 test.
@@ -65,14 +73,14 @@ unimplemented.
 | 21 | API and CLI expose consistent status and error semantics. | 4 | `tests/contract/test_api_cli_consistency.py` | [x] Phase 4: the families both surfaces expose agree; auth/capability/rate-limit are API-only by design. |
 | 22 | A policy change records the new version and who changed it. | 3 | `tests/integration/test_policy_versioning.py` | [x] Phase 3: a policy change records the version, actor, and reason. |
 | 23 | A fixed finding remains open until verification or a documented authorised waiver. | 3 | `tests/integration/test_finding_lifecycle.py` | [x] Phase 3: a fixed finding stays open without a verification result or waiver. |
-| 24 | Every confirmed finding passes the NYX self-consistency critic. | 2 | `tests/unit/test_critic_c010.py` | [ ] C-010 exists and passes in both directions, but is not enforced as a gate on `confirmed`. |
+| 24 | Every confirmed finding passes the NYX self-consistency critic. | 2 | `tests/unit/test_scenario_24_self_consistency_gate.py` | [x] Phase 2 obligation, closed 21 October 2026: C-010 is enforced as a gate on `confirmed`/`partially_confirmed` by `nyx.findings.lifecycle`. 7 tests: a consistent finding confirms; a dangling evidence reference, a tampered audit chain, and a missing transition history each refuse and leave the row unchanged; the gate is substitutable but has no off switch; ordinary progress is unaffected. |
 
 ## Phase gate view
 
 | Phase | Acceptance scenarios |
 | --- | --- |
 | 1 — Evidence and event spine | 1, 2, 3, 14, 18 |
-| 2 — Deterministic critic engine | 4, 5, 6, 7, 8, 9, 12 (24 partial) |
+| 2 — Deterministic critic engine | 4–9, 12, 24 (all passing) |
 | 3 — Disputes and verification | 10, 11, 22, 23 (all passing) |
 | 4 — Security and operational hardening | 13, 14, 15, 16, 17, 18, 19, 20, 21 (all passing) |
 | 5 — Integrations | No numbered scenarios; adapter contract and disablement tests |

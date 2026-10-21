@@ -21,12 +21,16 @@ from sqlalchemy.orm import Session
 from nyx.critics.base import CriticResultStatus
 from nyx.domain.base import PrincipalRef, Scope
 from nyx.domain.enums import (
+    EvidenceKind,
     FindingCategory,
     FindingStatus,
+    IntegrityMethod,
     PrincipalKind,
+    Sensitivity,
     Severity,
     VerificationResult,
 )
+from nyx.domain.evidence import EvidenceItem
 from nyx.findings.lifecycle import (
     FindingLifecycle,
     InvalidLifecycleTransitionError,
@@ -36,6 +40,7 @@ from nyx.findings.models import CriticRun, Finding, Reasoning, RecommendedAction
 from nyx.storage.db import session_scope
 from nyx.storage.repositories.audit import AuditRepository
 from nyx.storage.repositories.critic_runs import CriticRunRepository
+from nyx.storage.repositories.evidence import EvidenceRepository
 from nyx.storage.repositories.findings import FindingRepository
 
 # Pinned in the past: the lifecycle stamps updated_at from the real clock, so a future
@@ -51,9 +56,38 @@ class _AllowAllChecker:
         return True
 
 
+def _add_evidence(session: Session, evidence_id: str) -> EvidenceItem:
+    """Store the evidence row a finding references (see the unit-test helper)."""
+
+    repository = EvidenceRepository(session)
+    existing = repository.get(evidence_id)
+    if existing is not None:
+        return existing
+    return repository.add(
+        EvidenceItem(
+            id=evidence_id,
+            kind=EvidenceKind.CI_TEST_RESULT,
+            title="CI passed",
+            description="All checks passed.",
+            source_system_id="sys_scenario_23",
+            source_ref="https://ci.example.invalid/runs/1",
+            scope=Scope(system_id="sys_scenario_23", artifact="demo", commit="abc123"),
+            captured_at=_NOW,
+            valid_from=_NOW,
+            integrity_method=IntegrityMethod.HASH,
+            relevance_to_finding="fnd_scenario_23",
+            limitations=["Synthetic test evidence."],
+            sensitivity=Sensitivity.INTERNAL,
+            access_policy_ref="test",
+            retention_class="standard",
+        )
+    )
+
+
 def _persist_finding(session: Session, *, status: FindingStatus) -> Finding:
     """Persist a finding with its critic run, in the given state."""
 
+    _add_evidence(session, "ev_scenario_23")
     run = CriticRun(
         critic_id="critic_scenario_23",
         critic_version="1.0",

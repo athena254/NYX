@@ -28,12 +28,16 @@ from nyx.config import Settings
 from nyx.critics.base import CriticResultStatus
 from nyx.domain.base import PrincipalRef, Scope
 from nyx.domain.enums import (
+    EvidenceKind,
     FindingCategory,
     FindingStatus,
+    IntegrityMethod,
     PrincipalKind,
+    Sensitivity,
     Severity,
     VerificationResult,
 )
+from nyx.domain.evidence import EvidenceItem
 from nyx.error_codes import ErrorCode
 from nyx.findings.lifecycle import (
     CapabilityDeniedError,
@@ -50,6 +54,7 @@ from nyx.storage.db import (
 )
 from nyx.storage.repositories.audit import AuditRepository
 from nyx.storage.repositories.critic_runs import CriticRunRepository
+from nyx.storage.repositories.evidence import EvidenceRepository
 from nyx.storage.repositories.findings import FindingRepository
 
 _NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
@@ -64,6 +69,40 @@ class _AllowAllChecker:
         return True
 
 
+def _add_evidence(session: Session, evidence_id: str) -> EvidenceItem:
+    """Store the evidence row a finding references.
+
+    C-010 resolves a finding's evidence ids against the store, so a finding citing
+    an id nobody stored is a self-consistency violation. Since acceptance scenario
+    24 gates ``confirmed`` on C-010, these fixtures must be genuinely consistent
+    rather than merely plausible.
+    """
+
+    repository = EvidenceRepository(session)
+    existing = repository.get(evidence_id)
+    if existing is not None:
+        return existing
+    return repository.add(
+        EvidenceItem(
+            id=evidence_id,
+            kind=EvidenceKind.CI_TEST_RESULT,
+            title="CI passed",
+            description="All checks passed.",
+            source_system_id="sys_lifecycle_test",
+            source_ref="https://ci.example.invalid/runs/1",
+            scope=Scope(system_id="sys_lifecycle_test", artifact="demo", commit="abc123"),
+            captured_at=_NOW,
+            valid_from=_NOW,
+            integrity_method=IntegrityMethod.HASH,
+            relevance_to_finding="fnd_lifecycle_test",
+            limitations=["Synthetic test evidence."],
+            sensitivity=Sensitivity.INTERNAL,
+            access_policy_ref="test",
+            retention_class="standard",
+        )
+    )
+
+
 def _persist_finding(
     session: Session,
     *,
@@ -71,6 +110,8 @@ def _persist_finding(
     supporting: tuple[str, ...] = ("ev_test",),
 ) -> Finding:
     """Persist a finding with its critic run so it round-trips through storage."""
+
+    _add_evidence(session, "ev_test")
     run = CriticRun(
         critic_id="critic_lifecycle_test",
         critic_version="1.0",

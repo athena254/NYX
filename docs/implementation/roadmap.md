@@ -12,12 +12,12 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | --- | --- | --- | --- |
 | 0 | Repository discovery and decisions | done | None numbered; documents, schemas, examples, and ADRs reviewed |
 | 1 | Evidence and event spine | done (1a and 1b) | 1, 2, 3, 14, 18 |
-| 2 | Deterministic critic engine | done (2a and 2b) | 4, 5, 6, 7, 8, 9, 12; 24 partial |
+| 2 | Deterministic critic engine | done (2a and 2b) | 4, 5, 6, 7, 8, 9, 12, 24 |
 | 3 | Disputes and verification | done | 10, 11, 22, 23 |
 | 4 | Security and operational hardening | done | 13, 14, 15, 16, 17, 18, 19, 20, 21 |
 | 5 | Integrations | not started | No numbered scenarios; adapter contract tests and independent disablement |
 | 6 | Optional model critics and calibration | not started | 19 (re-validated with model critics) plus evaluation-corpus thresholds |
-| 7 | Conversational interface | in progress | No numbered scenarios; the chat cannot create a finding or record a disposition |
+| 7 | Conversational interface | done | No numbered scenarios; the chat cannot create a finding or record a disposition |
 
 Scenarios 14 and 18 are first gated in Phase 1 and re-validated in Phase 4. Scenario 19 is first
 gated in Phase 4 for safe failure handling and re-validated in Phase 6 with an actual LLM adapter.
@@ -209,13 +209,13 @@ Delivered:
 
 Known limitations:
 
-- Scenario 24 ("every confirmed finding passes the NYX self-consistency critic") is **partially**
-  met. The C-010 critic exists, is registered, and is tested in both directions (a consistent store
-  stays quiet; a store with a missing lifecycle transition or a tampered audit entry fires). It is
-  **not** enforced as a gate on `confirmed`, so a finding can currently be confirmed without C-010
-  being consulted. The box in `acceptance-tests.md` therefore stays unchecked.
-- The capability seam is still `DenyAllCapabilityChecker` until Phase 4 wires real authentication.
-- `docs/implementation/task-checklist.md` step 12 (audit chain verification) remains open.
+- Scenario 24 ("every confirmed finding passes the NYX self-consistency critic") is **met** as of
+  21 October 2026. C-010 is enforced as a gate on `confirmed` and `partially_confirmed` by
+  `nyx.findings.lifecycle`; see the "Scenario 24 note" in `acceptance-tests.md`.
+- The capability seam is now wired to real authentication (`src/nyx/auth/`, Phase 4); the
+  `DenyAllCapabilityChecker` default remains for callers that construct the lifecycle directly.
+- `docs/implementation/task-checklist.md` step 12 (audit chain verification) is closed: `nyx audit
+  verify` and `tests/integration/test_audit_integrity.py` landed in Phase 4.
 
 **Explicit non-goals for this phase:** rebuttals, dispositions, verification jobs, LLM critics.
 
@@ -401,7 +401,7 @@ model confidence as calibrated probability without separate calibration, or auto
 
 ## Phase 7 — Conversational interface
 
-**Status:** in progress (21 October 2026). See `docs/implementation/conversational-interface-plan.md`.
+**Status:** done (21 October 2026). See `docs/implementation/conversational-interface-plan.md`.
 Slices 6.1, 6.2, 6.3, 6.4 (CLI chat and Telegram bot), and 6.6 are done.
 
 **Deliverable:** a conversational front-end for NYX, living in the NYX repository as a separate
