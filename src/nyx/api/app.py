@@ -9,6 +9,11 @@ import nyx.critics  # noqa: F401 - registers the deterministic critic pack
 from nyx import __version__
 from nyx.api.errors import register_exception_handlers
 from nyx.api.middleware import RequestIdMiddleware
+from nyx.api.rate_limit import (
+    RateLimitMiddleware,
+    SlidingWindowRateLimiter,
+    principal_or_host_key,
+)
 from nyx.api.routes import (
     claims,
     critics,
@@ -88,6 +93,20 @@ def create_app(
     # request writes through -- or it would inspect a different database than the live one.
     register_storage_backed(session_factory)
 
+    # Rate limiting sits INSIDE RequestIdMiddleware. Starlette builds the stack so the last
+    # middleware added is outermost, and a refused request must still carry a request id and be
+    # logged with one. /health and /ready are exempt: a limiter that blocks health checks is how a
+    # dead deployment reports itself alive.
+    if effective.rate_limit_enabled:
+        app.add_middleware(
+            RateLimitMiddleware,
+            limiter=SlidingWindowRateLimiter(
+                limit=effective.rate_limit_requests,
+                window_seconds=effective.rate_limit_window_seconds,
+            ),
+            exempt_paths=effective.rate_limit_exempt_paths,
+            key_for=principal_or_host_key,
+        )
     app.add_middleware(RequestIdMiddleware)
     register_exception_handlers(app)
 

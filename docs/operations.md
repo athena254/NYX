@@ -2,8 +2,9 @@
 
 **Last updated:** 19 October 2026.
 
-This documents the Phase 1 local/controlled deployment surface. NYX is not yet hardened for
-untrusted public networks: authentication, authorisation, and rate limits are Phase 4.
+This documents the local/controlled deployment surface. Phase 4 adds authentication,
+authorisation, and rate limiting; their operational limits are recorded here rather than implying
+more safety than the implementation provides.
 
 ## Prerequisites
 
@@ -39,6 +40,19 @@ Readiness semantics:
 
 A failed readiness check never reports successful ingestion.
 
+## API rate limiting
+
+The HTTP API applies a per-caller sliding-window rate limit, enabled by default. Callers are keyed
+by authenticated principal id when one is present and by client host otherwise; a caller-supplied
+header such as `X-Forwarded-For` is never used as the key. `/api/v1/health` and `/api/v1/ready` are
+exempt, so a saturated API can still report liveness and readiness. A refused request returns
+`429 RATE_LIMITED` with a `Retry-After` header, through the same error envelope as other failures.
+
+**Non-claim:** the limiter is in-memory and per-process. Each API process keeps its own counters, so
+a deployment with multiple workers or replicas enforces the limit per process, not cluster-wide: N
+processes can allow up to N times the configured budget. Cluster-wide limiting requires a shared
+store (for example Redis) and is not implemented.
+
 ## Configuration
 
 Configuration is environment-first with the `NYX_` prefix (`src/nyx/config.py`). Local defaults bind
@@ -52,8 +66,12 @@ to loopback and a file-backed SQLite database. Relevant operational settings:
 | `NYX_MAX_BATCH_SIZE` | `100` | Maximum items in one batch request. |
 | `NYX_REDACTION_ENABLED` | `true` | Do not disable outside a controlled test. |
 | `NYX_LOG_LEVEL` | `INFO` | Structured JSON logs. |
-| `NYX_AUTH_MODE` | `none` | Phase 1 local mode. |
-| `NYX_LLM_ENABLED` | `false` | No model calls in Phase 1. |
+| `NYX_AUTH_MODE` | `none` | Local loopback mode; `api_key` requires credentials. |
+| `NYX_RATE_LIMIT_ENABLED` | `true` | Apply the per-caller API rate limit. |
+| `NYX_RATE_LIMIT_REQUESTS` | `120` | Allowed requests per window, per caller. |
+| `NYX_RATE_LIMIT_WINDOW_SECONDS` | `60.0` | Sliding-window length. |
+| `NYX_RATE_LIMIT_EXEMPT_PATHS` | health, ready | Paths never rate limited. |
+| `NYX_LLM_ENABLED` | `false` | No model calls by default. |
 
 The effective configuration is rendered with secret values redacted; do not add secrets to
 `NYX_*` values that are echoed by diagnostics.
@@ -130,6 +148,6 @@ Three operational facts worth knowing:
 
 ## Deferred operational work
 
-Authentication/authorisation, rate limiting, retention jobs, external adapters, and container/CI
-hardening are later phases. Audit-chain verification (`nyx audit verify`) is also still open. There is
-no automated backup scheduler or metrics endpoint yet; monitor logs and `/ready` externally.
+Rate limiting is per-process as described above. Retention jobs, external adapters, and container/CI
+hardening are later phases. There is no shared rate-limit store, automated backup scheduler, or
+metrics endpoint yet; monitor logs and `/ready` externally.
