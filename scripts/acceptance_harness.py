@@ -451,14 +451,25 @@ def _run_checks(db_path: Path, db_url: str, tmpdir: Path) -> None:
             except PermissionError:
                 time.sleep(0.3)
 
-    # ---- SKIP scenarios ----
+    # ---- Scenarios this script cannot check ----
+    # The harness drives a live server and the CLI. Everything below is checked by the named test
+    # file in the project's suite instead, so a SKIP here means "not checkable by THIS script", not
+    # "not implemented". An earlier version of this list claimed several of these were
+    # unimplemented, which stopped being true and is exactly the stale-SKIP failure this list now
+    # avoids: each entry names where the real check lives.
     skips = {
-        "6-13": "rebuttals/verification/dispositions not implemented (Phase 3)",
-        "15": "prompt-injection tool-access guard not implemented",
-        "16": "verification-tool sandbox not implemented",
-        "17": "audit-history mutation detection not implemented",
-        "19": "LLM-output validation not implemented",
-        "20-24": "doctor/auth/self-consistency not fully implemented",
+        "6-12": "checked by tests/integration/test_disputes.py and test_findings_readback.py",
+        "13": "checked by tests/security/test_evidence_access.py (needs a configured principal)",
+        "15": "checked by tests/security/test_prompt_injection.py",
+        "16": "checked by tests/security/test_verification_allowlist.py",
+        "17": "checked by tests/integration/test_audit_integrity.py",
+        "19": "checked by tests/unit/test_llm_critic_failure.py (stub path)",
+        "20": "checked by tests/integration/test_health_and_doctor.py",
+        "21": "checked by tests/contract/test_api_cli_consistency.py",
+        "22-23": (
+            "checked by tests/integration/test_policy_versioning.py and test_finding_lifecycle.py"
+        ),
+        "24": "NOT IMPLEMENTED: C-010 is not enforced as a gate on confirmed",
     }
     for num, reason in skips.items():
         record(num, False, reason, skip=True)

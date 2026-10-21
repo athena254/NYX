@@ -2,7 +2,7 @@
 
 **Source:** `docs/SPEC.md` §19. Phase numbers and exit criteria are taken from that section; this file
 tracks status, deliverables, and the acceptance scenarios that gate each phase.
-**Last updated:** 19 October 2026.
+**Last updated:** 21 October 2026.
 
 Status values: `not started`, `in progress`, `blocked`, `done`.
 
@@ -14,7 +14,7 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | 1 | Evidence and event spine | done (1a and 1b) | 1, 2, 3, 14, 18 |
 | 2 | Deterministic critic engine | done (2a and 2b) | 4, 5, 6, 7, 8, 9, 12; 24 partial |
 | 3 | Disputes and verification | done | 10, 11, 22, 23 |
-| 4 | Security and operational hardening | not started | 13, 14, 15, 16, 17, 18, 19, 20 |
+| 4 | Security and operational hardening | done | 13, 14, 15, 16, 17, 18, 19, 20, 21 |
 | 5 | Integrations | not started | No numbered scenarios; adapter contract tests and independent disablement |
 | 6 | Optional model critics and calibration | not started | 19 (re-validated with model critics) plus evaluation-corpus thresholds |
 | 7 | Conversational interface | in progress | No numbered scenarios; the chat cannot create a finding or record a disposition |
@@ -289,28 +289,59 @@ finding merely because the target says it is fixed.
 
 ## Phase 4 — Security and operational hardening
 
-**Status:** not started.
+**Status:** done (21 October 2026). Verified with `uv run pytest` (545 passed, 1 skipped), `uv run
+mypy` (strict, 120 files), `uv run ruff check .`, `uv run ruff format --check .` (194 files), and
+`uv run alembic upgrade head` on a clean database. Acceptance scenarios 13–21 pass; the evidence is
+in `acceptance-tests.md` and each slice's commit message.
 
 **Deliverable:** enforceable security boundaries and operational readiness for local and controlled
 deployment.
 
 **Work items**
 
-- Complete threat-model implementation and security tests.
-- Authentication and capability-based authorisation.
-- Rate limits, bounded ingestion, and safe error/logging behaviour.
-- Retention and redaction jobs.
-- Prompt-injection, SSRF, path-traversal, and arbitrary-command tests.
-- Health and readiness checks; `nyx doctor` secret-safe output.
-- Audit verification within its documented model.
-- Dependency and container scanning in CI.
-- API/CLI consistency tests.
+- [x] Complete threat-model implementation and security tests. `tests/security/` is new: 5 files.
+- [x] Authentication and capability-based authorisation. `src/nyx/auth/`; the actor on a lifecycle
+      transition is the authenticated principal, so a caller cannot record an action under another
+      identity. ADR 0007 records the trust decision.
+- [x] Rate limits, bounded ingestion, and safe error/logging behaviour. Sliding-window per-caller
+      limiting, keyed by principal when authenticated and by socket peer otherwise; `/health` and
+      `/ready` exempt.
+- [x] Retention and redaction jobs. `src/nyx/retention/`; `nyx retention purge` and
+      `nyx retention redact`. Purge is opt-in and tombstones rather than deletes.
+- [x] Prompt-injection, SSRF, path-traversal, and arbitrary-command tests. All three guards have a
+      real caller at the ingestion edge, so none is a placeholder module.
+- [x] Health and readiness checks; `nyx doctor` secret-safe output. `--json` now carries an
+      `effective_config` key rendered by the redacting config renderer.
+- [x] Audit verification within its documented model. `nyx audit verify`; the hash chain now has one
+      shared implementation used by the writer, the verifier, and C-010.
+- [x] Dependency and container scanning in CI. `.github/workflows/`; a `Dockerfile` and `.dockerignore`
+      so there is an image to scan.
+- [x] API/CLI consistency tests. `tests/contract/test_api_cli_consistency.py`.
 
-**Exit criteria (SPEC §19):** acceptance scenarios 13–20 pass.
+**Exit criteria (SPEC §19):** acceptance scenarios 13–20 pass. **Met, and 21 as well** — the
+roadmap's work item "API/CLI consistency tests" had no scenario assigned to it; scenario 21 is the
+one that owns it.
 
-**Acceptance scenarios:** 13, 14, 15, 16, 17, 18, 19, 20.
+**Acceptance scenarios:** 13, 14, 15, 16, 17, 18, 19, 20, 21.
 
 **Explicit non-goals for this phase:** model critics and external adapters.
+
+### Defects found while landing the phase
+
+None of these were reported by the agents that wrote the slices; each was found by running the
+project's own gates or a probe written outside the project's test helpers.
+
+| # | Defect | Layer |
+| --- | --- | --- |
+| 1 | The audit hash chain had **no test at all** — the plan claimed existing tests guarded it, and that claim was false | audit |
+| 2 | C-010 reached for a private name (`_entry_hash`) instead of the public one | critics |
+| 3 | The capability checker was wired while the actor was still self-asserted, so anyone could claim the `operator` identity and be granted its capability | auth |
+| 4 | `nyx finding dispose` could never succeed: the CLI bound deny-all too | CLI |
+| 5 | Rate limiting keyed on a request field nothing set, and middleware runs before auth | API |
+| 6 | **Claims carried no `retention_class`** — the value producers sent was validated then silently discarded, so purge skipped every claim forever while reporting success | domain/storage |
+| 7 | `nyx doctor` reported any *configured* optional integration as a failure while never checking availability | CLI |
+| 8 | `configure_logging` replaced `root.handlers`, discarding handlers other components installed; a closed stream then raised on emit and printed a `--- Logging error ---` block | observability |
+| 9 | `certifi 2026.10.18` carried 2 known CVEs, found by running the dependency scan locally | dependencies |
 
 ---
 

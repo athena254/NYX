@@ -20,6 +20,17 @@ unchecked on purpose: it is Phase 4-owned, and checking it here would break the 
 Phase 3's obligation is the narrower one -- do not create the hole -- and the allowlist is
 unit-tested to refuse an unregistered check before anything executes.
 
+**Phase 4 note (21 October 2026):** scenarios 13, 15, 16, 17, 19, 20, and 21 are checked, and 14
+and 18 still pass. Scenario 19 is checked for the **stub** path only; the live provider adapter is
+Phase 6. Scenario 24 remains unchecked and is not Phase 4's: C-010 is still not enforced as a gate
+on `confirmed`.
+
+Every Phase 4 box above was checked by running the project's own gates (`uv run pytest`, `uv run
+mypy`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run alembic upgrade head`) plus a
+probe written **outside** the project's test helpers and driven against a real migrated database.
+A module's own tests were written by whoever wrote the module; one bad shared assumption hides the
+same bug on both sides. The probes are in `tmp/` (gitignored) and are named `probe_*.py`.
+
 
 **Phase 1b note (19 October 2026):** scenarios 1, 2, 3, 14, and 18 were run with
 `uv run pytest -q` (89 tests passing) against a real Alembic-migrated SQLite database. Two test files
@@ -43,15 +54,15 @@ unimplemented.
 | 10 | A rebuttal appends to history and does not overwrite the original finding. | 3 | `tests/integration/test_disputes.py` | [x] Phase 3: a rebuttal appends and leaves the finding otherwise unchanged. |
 | 11 | Counterevidence can lead to rejection or an inconclusive disposition. | 3 | `tests/integration/test_disputes.py` | [x] Phase 3: counterevidence leads to rejection or inconclusive, and the negative case is covered. |
 | 12 | Invalid lifecycle transitions are rejected without changing stored state. | 2 | `tests/unit/test_finding_lifecycle.py` | [x] |
-| 13 | A caller cannot read restricted evidence without the required capability. | 4 | `tests/security/test_evidence_access.py` | [ ] |
+| 13 | A caller cannot read restricted evidence without the required capability. | 4 | `tests/security/test_evidence_access.py` | [x] Phase 4: 7 tests, including 401 with no credential and 403 when the body claims another identity. |
 | 14 | Secrets in incoming payloads are redacted before persistence and model processing. | 1 (re-validated 4) | `tests/unit/test_redaction.py`, `tests/integration/test_redaction_persistence.py` | [x] |
-| 15 | Prompt injection embedded in evidence cannot grant tool access or change trusted policy. | 4 (re-validated 6) | `tests/security/test_prompt_injection.py` | [ ] |
-| 16 | A verification tool cannot execute an arbitrary command supplied by an untrusted event. | 4 | `tests/security/test_verification_allowlist.py` | [ ] |
-| 17 | Audit history detects accidental record mutation within the implemented threat model. | 4 | `tests/integration/test_audit_integrity.py` | [ ] |
+| 15 | Prompt injection embedded in evidence cannot grant tool access or change trusted policy. | 4 (re-validated 6) | `tests/security/test_prompt_injection.py` | [x] Phase 4: the fence cannot be closed from inside, and policy resolution reads only from the registered rule set. |
+| 16 | A verification tool cannot execute an arbitrary command supplied by an untrusted event. | 4 | `tests/security/test_verification_allowlist.py` | [x] Phase 4: an unregistered check is refused before anything runs, and a `src/` grep guard fails the build if `subprocess`/`os.system`/`shell=True`/`eval(`/`exec(` appears. |
+| 17 | Audit history detects accidental record mutation within the implemented threat model. | 4 | `tests/integration/test_audit_integrity.py` | [x] Phase 4: 10 tests mutating real rows; the non-claim (a full-database rewrite) is asserted as wording, not as coverage. |
 | 18 | Database/provider outage produces a safe failure and does not report successful ingestion. | 1 (re-validated 4) | `tests/integration/test_readiness_failure.py` | [x] |
-| 19 | LLM timeout or invalid structured output does not corrupt finding state. | 4 (stub) / 6 (live adapter) | `tests/unit/test_llm_critic_failure.py` | [ ] |
-| 20 | `nyx doctor`, health, and readiness correctly report dependency state without leaking secrets. | 4 | `tests/integration/test_health_and_doctor.py` | [ ] |
-| 21 | API and CLI expose consistent status and error semantics. | 4 | `tests/contract/test_api_cli_consistency.py` | [ ] |
+| 19 | LLM timeout or invalid structured output does not corrupt finding state. | 4 (stub) / 6 (live adapter) | `tests/unit/test_llm_critic_failure.py` | [x] Phase 4 stub path: 8 tests asserting on the `findings` and `critic_runs` tables. Live adapter remains Phase 6. |
+| 20 | `nyx doctor`, health, and readiness correctly report dependency state without leaking secrets. | 4 | `tests/integration/test_health_and_doctor.py` | [x] Phase 4: a stopped database is a 503 with no traceback; doctor prints `***redacted***` and no secret value or prefix. |
+| 21 | API and CLI expose consistent status and error semantics. | 4 | `tests/contract/test_api_cli_consistency.py` | [x] Phase 4: the families both surfaces expose agree; auth/capability/rate-limit are API-only by design. |
 | 22 | A policy change records the new version and who changed it. | 3 | `tests/integration/test_policy_versioning.py` | [x] Phase 3: a policy change records the version, actor, and reason. |
 | 23 | A fixed finding remains open until verification or a documented authorised waiver. | 3 | `tests/integration/test_finding_lifecycle.py` | [x] Phase 3: a fixed finding stays open without a verification result or waiver. |
 | 24 | Every confirmed finding passes the NYX self-consistency critic. | 2 | `tests/unit/test_critic_c010.py` | [ ] C-010 exists and passes in both directions, but is not enforced as a gate on `confirmed`. |
@@ -63,7 +74,7 @@ unimplemented.
 | 1 — Evidence and event spine | 1, 2, 3, 14, 18 |
 | 2 — Deterministic critic engine | 4, 5, 6, 7, 8, 9, 12 (24 partial) |
 | 3 — Disputes and verification | 10, 11, 22, 23 (all passing) |
-| 4 — Security and operational hardening | 13, 14, 15, 16, 17, 18, 19, 20 |
+| 4 — Security and operational hardening | 13, 14, 15, 16, 17, 18, 19, 20, 21 (all passing) |
 | 5 — Integrations | No numbered scenarios; adapter contract and disablement tests |
 | 6 — Optional model critics and calibration | 19 (live model path), 15 (model path), calibration thresholds |
 

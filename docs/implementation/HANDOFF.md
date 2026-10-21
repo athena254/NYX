@@ -446,7 +446,72 @@ Ollama only because dmr-X was not running.
 ### Next move
 
 **Phase 4 — security and operational hardening.** Real authentication (the capability checker is
-still `DenyAllCapabilityChecker`), rate limits on the API, audit-chain verification
+still DenyAllCapabilityChecker), rate limits on the API, audit-chain verification
 (`nyx audit verify`), retention and redaction jobs, and the prompt-injection/SSRF/path-traversal
 tests. This is what makes NYX safe to expose beyond localhost, and it is the largest remaining
 block of work. Acceptance scenarios 13–20 gate it.
+
+---
+
+## Update — 21 October 2026 (fifth session): Phase 4 is complete
+
+Phase 4 is **done**. Head `8c70cf6` was the previous session's tip; this session adds twelve commits.
+
+### Where the project stands
+
+| Phase | State | Acceptance scenarios |
+| --- | --- | --- |
+| 0 Repository discovery | done | — |
+| 1 Evidence and event spine | done | 1, 2, 3, 14, 18 |
+| 2 Deterministic critic engine | done | 4–9, 12 (24 partial) |
+| 3 Disputes and verification | done | 10, 11, 22, 23 |
+| 4 Security and operational hardening | **done** | 13–21 |
+| 5 Integrations | not started | — |
+| 6 Optional model critics | not started | 19 (live), 15 (model path) |
+| 7 Conversational interface | done | none numbered |
+
+### What was built
+
+Eight slices: shared configuration; audit-chain verification; authentication and capability
+enforcement; the injection/SSRF/path-traversal guards; rate limiting; retention and redaction; the
+health/doctor and API/CLI consistency tests; the failure-safe LLM critic; CI and a container image.
+
+### The discipline that mattered
+
+Every slice was gated by running the project's own commands, and then by a **probe written outside
+the project's test helpers** and driven against a real migrated database. That found nine defects
+that the agents' own tests did not — including one where the plan itself was wrong (it claimed
+existing tests guarded the audit hash chain; there were none) and one where a slice's own tests
+passed while the product was broken (the capability checker was wired while the actor was still
+self-asserted, so anyone could claim the `operator` identity).
+
+Full list in `docs/implementation/roadmap.md` §Phase 4.
+
+### Gates (21 October 2026)
+
+`uv run pytest` **545 passed, 1 skipped** · `uv run mypy` clean (120 files) · `uv run ruff check .`
+clean · `uv run ruff format --check .` 194 files formatted · `uv run alembic upgrade head` clean.
+
+The one skip is a Windows platform skip in `tests/security/test_ssrf_and_paths.py` (symlink creation
+is not permitted without privilege), not a stale SKIP.
+
+### Honest limitations, recorded rather than hidden
+
+- **The container image has never been built.** Docker is not installed on this machine. The
+  `Dockerfile` is verified by inspection and because every command in it is one CI runs; the
+  workflow builds and scans it.
+- **Rate limiting is per-process.** A multi-process deployment needs a shared store.
+- **Scenario 19 is checked for the stub path only.** The live provider adapter is Phase 6.
+- **Scenario 24 is still unchecked**, and it is not Phase 4's: C-010 is still not enforced as a gate
+  on `confirmed`.
+- **`nyx doctor` does not probe an LLM endpoint's reachability.** It reports what is configured and
+  no longer claims an availability it never verified.
+
+### Next move
+
+1. **Phase 5 — integrations.** The Git/CI adapter first. Each adapter needs a contract test and a
+   documented disablement path, and no sibling project's code is vendored — they are consumed over
+   HTTP.
+2. **Scenario 24**, if it is wanted: enforce C-010 as a gate on `confirmed`. It is the last
+   unchecked box and it is a Phase 2 obligation.
+3. **Build the image somewhere with Docker**, to close the one unverified step in CI.
