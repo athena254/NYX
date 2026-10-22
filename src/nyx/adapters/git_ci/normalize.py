@@ -126,6 +126,23 @@ _MAX_TEXT = 200
 _MAX_CONCLUSION = 32
 _MAX_EXTERNAL_ID = 100
 
+#: GitHub's conclusion vocabulary mapped to the outcome word the deterministic critic reads.
+#:
+#: C-001 reads a pass/fail word out of the evidence *text* -- the evidence model has no
+#: structured outcome field -- using ``\bpass(?:es|ed|ing)?\b|\bgreen\b`` and
+#: ``\bfail(?:s|ed|ing|ure)?\b|\bbroken\b|\bred\b``. GitHub never says "passed" or "failed";
+#: its vocabulary is ``success`` and ``failure``. These two entries translate GitHub's own
+#: words and nothing else.
+#:
+#: Every other conclusion -- ``neutral``, ``cancelled``, ``skipped``, ``timed_out``,
+#: ``action_required``, ``stale``, ``completed`` -- is preserved verbatim and deliberately
+#: gets NO pass/fail word, because the host did not report one. Inventing one would be
+#: fabricating the very evidence NYX exists to be sceptical about.
+_CONCLUSION_WORD = {
+    "success": "passed",
+    "failure": "failed",
+}
+
 
 class NormalizationError(ValueError):
     """A payload is malformed: a *required* field is missing, empty, or the wrong type.
@@ -597,19 +614,24 @@ def _workflow_title(name: str, branch: str | None) -> str:
 
 
 def _evidence_description(name: str, conclusion: str | None, suite: str | None, state: str) -> str:
-    """State the conclusion in GitHub's own words, plus the suite. Nothing is invented.
+    """State the conclusion in GitHub's own words, plus the critic-readable outcome.
 
     C-001 reads the outcome from the title and description with ``\\bpass(?:es|ed|ing)?\\b`` and
-    ``\\bfail(?:s|ed|ing|ure)?\\b``, so a ``success`` conclusion must appear as the bare word
-    ``success`` and a ``failure`` as ``failure``. A ``neutral``/``skipped``/``cancelled``
-    conclusion is preserved verbatim and is deliberately *not* turned into a pass or a fail.
+    ``\\bfail(?:s|ed|ing|ure)?\\b``. GitHub says ``success`` and ``failure``, which match
+    neither, so a bare GitHub conclusion is invisible to the critic. The host's own word is
+    kept *and* the translated outcome is added for the two conclusions GitHub actually uses
+    for pass/fail; anything else is left verbatim, with no pass/fail word invented.
     """
 
     parts = [f"GitHub check run '{name}'"]
     if suite:
         parts.append(f" (suite: {suite})")
     if conclusion:
-        parts.append(f" concluded {conclusion}")
+        word = _CONCLUSION_WORD.get(conclusion)
+        if word:
+            parts.append(f" concluded {conclusion} ({word})")
+        else:
+            parts.append(f" concluded {conclusion}")
     elif state:
         parts.append(f" reported status {state}")
     else:
@@ -621,14 +643,19 @@ def _workflow_description(name: str, conclusion: str | None, branch: str | None,
     """The Actions-run counterpart of :func:`_evidence_description`.
 
     An Actions run reports a workflow conclusion, not a per-job test result, so the branch is
-    stated alongside it. No pass/fail word is added that the host did not use.
+    stated alongside it. The host's own word is kept, and the critic-readable outcome is added
+    only for ``success``/``failure`` -- the two conclusions GitHub uses for pass/fail.
     """
 
     parts = [f"GitHub Actions workflow '{name}'"]
     if branch:
         parts.append(f" on branch {branch}")
     if conclusion:
-        parts.append(f" concluded {conclusion}")
+        word = _CONCLUSION_WORD.get(conclusion)
+        if word:
+            parts.append(f" concluded {conclusion} ({word})")
+        else:
+            parts.append(f" concluded {conclusion}")
     elif state:
         parts.append(f" reported status {state}")
     else:

@@ -679,6 +679,20 @@ correct behaviour is to skip the record and report the skip. If the agent finds 
 
 ### Slice 5.3 — adapter assembly and the live contract test
 
+**Status: landed.** `GitCiAdapter` (314 lines) + `tests/contract/test_git_ci_adapter.py`
+(863 lines, 25 cases: P1–P10 and N1–N12, N5 parametrized over four malformed payloads).
+Runs the adapter over a **real socket** against a stdlib `http.server` stub, then drives the
+output through the real `IngestionService` against a migrated database.
+
+**Defect found while landing it, fixed in slice 5.2's file:** the adapter's evidence was
+invisible to C-001. C-001 reads a pass/fail word out of the evidence text using
+`\bpass(?:es|ed|ing)?\b|\bgreen\b` and `\bfail(?:s|ed|ing|ure)?\b|\bbroken\b|\bred\b`; GitHub
+says `success` and `failure`, which match neither. `_evidence_description` now keeps the
+host's own word **and** adds the translated outcome for exactly the two conclusions GitHub
+uses for pass/fail. Every other conclusion is left verbatim with no pass/fail word invented.
+Proven by `tmp/probes/probe_git_ci_adapter.py`: C-001 now reads `success`→`passed`,
+`failure`→`failed`, `neutral`→no outcome.
+
 **Deliverables**
 
 - `src/nyx/adapters/git_ci/adapter.py` — `GitCiAdapter` (§2.3). `fetch_for_ref(ref)` calls the
@@ -730,6 +744,12 @@ with `session_scope`.
 ---
 
 ### Slice 5.4 — local-git provider
+
+**Status: landed.** `LocalGitClient` + `tests/unit/test_git_ci_local_git.py` (9 tests).
+Same interface as `GitHubCiClient`, backed by a local `.git` directory read with `pathlib` —
+no `subprocess`, so gate G1 stays intact. A traversal locator is refused in `__init__`
+before anything is read (`GitCiError` code `denied`, with `PathTraversalError` as
+`__cause__` so the guard is provable).
 
 **Deliverables**
 
