@@ -685,3 +685,54 @@ clean · `uv run ruff format --check .` 205 files · `uv run alembic upgrade hea
 **Wave 2, in parallel:** slice 5.3 (`git_ci/adapter.py` + `tests/contract/test_git_ci_adapter.py`)
 and slice 5.4 (`git_ci/local_git.py` + `tests/unit/test_git_ci_local_git.py`). Both are unblocked:
 5.1 and 5.2 are landed and committed.
+
+---
+
+## Update — 22 October 2026 (ninth session): slices 5.3 and 5.4 landed
+
+| Slice | Commit | What |
+| --- | --- | --- |
+| 5.3 | `524afed` | `GitCiAdapter` + the Phase 5 contract test (25 cases, real socket) |
+| 5.4 | `524afed` | `LocalGitClient` — same interface, reads `.git` with pathlib, no subprocess |
+
+### The second probe-found defect: the adapter's evidence was invisible to C-001
+
+Slice 5.3's agent reported it, and the probe confirmed it. C-001 reads a pass/fail word out of
+the evidence *text* (`\bpass(?:es|ed|ing)?\b|\bgreen\b` / `\bfail(?:s|ed|ing|ure)?\b|\bbroken\b|\bred\b`)
+because the evidence model has no structured outcome field. GitHub says `success` and `failure`,
+which match **neither**. So a successful run produced evidence no critic could read, and the
+same-commit negative case (P10) only passed by accident of the job name carrying a pass marker.
+
+**Fixed** in `_evidence_description` / `_workflow_description`: the host's own word is kept *and*
+the translated outcome is added for exactly the two conclusions GitHub uses for pass/fail
+(`success`→`passed`, `failure`→`failed`). Every other conclusion — `neutral`, `cancelled`,
+`skipped`, `timed_out`, `action_required`, `stale` — is left verbatim with no pass/fail word
+invented. Inventing one would be fabricating evidence, which is the one thing NYX exists to
+avoid.
+
+Proven end to end through the real ingestion path: C-001 now reads `success`→`passed`,
+`failure`→`failed`, `neutral`→no outcome.
+
+### Two defects found in total, both by probes, none by the slices' own tests
+
+1. The adapter's evidence could not be stored at all (SPEC §5.4 vs §14) — found by
+   `probe_git_ci_adapter.py`, fixed in ADR 0008.
+2. The adapter's evidence was invisible to C-001 (GitHub vs critic vocabulary) — found by
+   slice 5.3's agent and confirmed by the same probe.
+
+**A slice's own tests assert the shape of what it returns. They do not assert that the rest of
+the system can consume it.** Both defects live exactly at that seam.
+
+### Gates (22 October 2026)
+
+`uv run pytest` **637 passed, 1 skipped** · `uv run mypy` clean (128 files) · `uv run ruff check .`
+clean · `uv run ruff format --check .` 209 files · `uv run alembic upgrade head` clean ·
+boundary grep (G7) 13 passed · security allowlist (G1) 9 passed · `docs/openapi.json` unchanged ·
+`tmp/probes/probe_git_ci_adapter.py` **34 checks, all green**.
+
+### Next move
+
+**Slice 5.5** — the fixture provider and `tests/integration/test_adapter_disablement.py`, which
+is Phase 5's exit criterion: *adapters can be disabled independently and core NYX still works*.
+It extends `nyx doctor`'s `optional_integrations` message to `registered: …; enabled: …` without
+changing its pass/fail semantics (Phase 4 defect #7 is not to be repeated). After that, Phase 6.
