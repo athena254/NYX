@@ -1,0 +1,35 @@
+{
+  "total_count": 2,
+  "workflow_runs": [
+    {
+      "id": 200001,
+      "ref": "main",
+      "name": "fixture-ci",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "fixtureaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa01",
+      "run_started_at": "2026-10-22T09:00:00Z",
+      "updated_at": "2026-10-22T09:03:00Z",
+      "head_branch": "main",
+      "html_url": "file://fixture/actions-runs.json#run=200001",
+      "triggering_actor": {
+        "login": "fixture-bot"
+      }
+    },
+    {
+      "id": 200002,
+      "ref": "main",
+      "name": "fixture-release",
+      "status": "completed",
+      "conclusion": "failure",
+      "head_sha": "fixturebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb02",
+      "run_started_at": "2026-10-22T10:00:00Z",
+      "updated_at": "2026-10-22T10:04:00Z",
+      "head_branch": "main",
+      "html_url": "file://fixture/actions-runs.json#run=200002",
+      "triggering_actor": {
+        "login": "fixture-bot"
+      }
+    }
+  ]
+}

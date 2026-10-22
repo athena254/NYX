@@ -388,6 +388,46 @@ def evidence_add(
 # --------------------------------------------------------------------------- doctor
 
 
+def _adapter_registry_detail(settings: Settings) -> str:
+    """Describe the adapter inventory: what is registered, and which the deployment switches on.
+
+    Phase 4 defect #7 was a doctor check that reported *configuration* as *availability*. The
+    inverse mistake is reporting only what is configured and hiding what is registered: an
+    operator who has the git-ci adapter installed but not enabled would see nothing here and
+    reasonably conclude it is not installed.
+
+    Imported lazily so the CLI's ~2.4s import cost is not paid by commands that never ask.
+    """
+
+    try:
+        from nyx.adapters.base import AdapterRegistry
+        from nyx.adapters.git_ci.adapter import GitCiAdapter
+        from nyx.adapters.git_ci.config import GitCiConfig
+    except ImportError:  # pragma: no cover - the adapter package is a hard Phase 5 dependency
+        return "adapter package unavailable"
+
+    enabled = set(settings.enabled_adapters)
+    registry = AdapterRegistry(is_enabled=lambda adapter_id: adapter_id in enabled)
+    try:
+        registry.register(GitCiAdapter(GitCiConfig.from_settings(settings)))
+    except ValidationError as exc:
+        # Name the field rather than the exception type: "not constructible" tells an operator
+        # nothing, and the usual cause is simply that no repository is configured yet.
+        field = exc.errors()[0].get("loc", ("unknown",))[0]
+        return f"git-ci registered but not constructible: {field} is not set"
+    except Exception as exc:  # noqa: BLE001 - a doctor check reports, it does not crash
+        return f"git-ci registered but not constructible ({type(exc).__name__})"
+
+    descriptors = registry.registered()
+    if not descriptors:
+        return "no adapter registered"
+    states = ", ".join(
+        f"{descriptor.adapter_id}={'enabled' if descriptor.adapter_id in enabled else 'disabled'}"
+        for descriptor in descriptors
+    )
+    return f"registered: {states}"
+
+
 @app.command()
 def doctor(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
@@ -472,7 +512,8 @@ def doctor(
         "optional_integrations",
         True,
         None,
-        "none enabled" if not integrations else f"configured: {', '.join(integrations)}",
+        ("none enabled" if not integrations else f"configured: {', '.join(integrations)}")
+        + f"; {_adapter_registry_detail(settings)}",
     )
 
     record("api_app", *_check_api_app())

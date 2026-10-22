@@ -1,0 +1,39 @@
+{
+  "total_count": 2,
+  "check_runs": [
+    {
+      "id": 100001,
+      "ref": "main",
+      "name": "fixture-integration-passed",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "fixtureaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa01",
+      "started_at": "2026-10-22T09:00:00Z",
+      "completed_at": "2026-10-22T09:01:00Z",
+      "check_suite": {
+        "display_title": "fixture-required-integration"
+      },
+      "html_url": "file://fixture/check-runs.json#run=100001",
+      "actor": {
+        "login": "fixture-bot"
+      }
+    },
+    {
+      "id": 100002,
+      "ref": "main",
+      "name": "fixture-audit-failed",
+      "status": "completed",
+      "conclusion": "failure",
+      "head_sha": "fixturebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb02",
+      "started_at": "2026-10-22T10:00:00Z",
+      "completed_at": "2026-10-22T10:02:00Z",
+      "check_suite": {
+        "display_title": "fixture-required-integration"
+      },
+      "html_url": "file://fixture/check-runs.json#run=100002",
+      "actor": {
+        "login": "fixture-bot"
+      }
+    }
+  ]
+}
