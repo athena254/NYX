@@ -736,3 +736,81 @@ boundary grep (G7) 13 passed · security allowlist (G1) 9 passed · `docs/openap
 is Phase 5's exit criterion: *adapters can be disabled independently and core NYX still works*.
 It extends `nyx doctor`'s `optional_integrations` message to `registered: …; enabled: …` without
 changing its pass/fail semantics (Phase 4 defect #7 is not to be repeated). After that, Phase 6.
+
+---
+
+## Update — 22 October 2026 (tenth session): Phase 5 is complete
+
+**Slice 5.5 landed, and the doctor gap it could not close is closed.** Phase 5 is done:
+six slices, one adapter, three providers, contract test, disablement test, ADR 0008.
+
+| Slice | Commit | What |
+| --- | --- | --- |
+| 5.0 | `c0bc402` | `Adapter` protocol, registry, health, config, ADR 0008, boundary grep |
+| 5.1 + 5.2 | `f652fcb` | `GitHubCiClient`, `GitCiConfig`, `normalize.py` |
+| 5.3 + 5.4 | `524afed` | `GitCiAdapter` + contract test; `LocalGitClient` |
+| 5.5 | `b3d5240` | `FixtureCiClient` + the disablement test |
+
+### The exit criterion is met
+
+`tests/integration/test_adapter_disablement.py` asserts all eight disablement properties,
+including the one that matters most: **with the adapter enabled and its host unreachable,
+`health()` is `DEGRADED` and `GET /api/v1/ready` is still `200`.** An optional adapter being down
+never makes NYX unready. The health route was not modified to achieve that — the test proves it
+does not have an adapter check.
+
+### The gap slice 5.5 could not close, closed by the orchestrator
+
+The plan's assertion 3 requires `nyx doctor` to say `registered: git-ci; enabled: false`. The
+agent flagged that `cli/main.py` is orchestrator-only and outside its exclusive file list, and
+refused to touch it — correct behaviour. `cli/main.py` now builds the adapter registry in the
+doctor command and reports both halves:
+
+```
+default (installed, nothing configured):
+  none enabled; git-ci registered but not constructible: repository is not set
+repository set, still disabled:
+  none enabled; registered: git-ci=disabled
+enabled:
+  configured: llm, git-ci; registered: git-ci=enabled
+```
+
+Phase 4 defect #7 was a doctor check that reported *configuration* as *availability*. The
+inverse mistake is reporting only what is configured and hiding what is registered.
+
+### Four defects found across Phase 5, none by the slices' own tests
+
+| # | Defect | Found by |
+| --- | --- | --- |
+| 1 | Lifecycle test fixtures cited evidence no row backed | orchestrator, while closing scenario 24 |
+| 2 | The adapter's evidence could not be stored (SPEC §5.4 vs §14) | `probe_git_ci_adapter.py` |
+| 3 | The adapter's evidence was invisible to C-001 (GitHub vs critic vocabulary) | slice 5.3's agent, confirmed by the probe |
+| 4 | `nyx doctor` hid a registered-but-disabled adapter | slice 5.5's agent |
+
+**#2 and #3 are the same shape.** A slice's own tests assert the *shape* of what it returns;
+they do not assert that the rest of the system can *consume* it. Both lived at that seam.
+
+### Gates (22 October 2026)
+
+`uv run pytest` **646 passed, 1 skipped** · `uv run mypy` clean (129 files) · `uv run ruff check .`
+clean · `uv run ruff format --check .` 211 files · `uv run alembic upgrade head` clean ·
+boundary grep (G7) + security allowlist (G1) 22 passed · `docs/openapi.json` unchanged ·
+`tmp/probes/probe_git_ci_adapter.py` **34 checks, all green**.
+
+### Honest limitations
+
+- **The local-git provider reads refs and the reflog, not git objects** — no commit contents or
+  diffs. Stated in the module docstring and ADR 0008.
+- **`EvidenceItem` accepts unlinked evidence with a `relevance_note`** — an explicit SPEC §5.4
+  deviation, recorded in ADR 0008, and reversible.
+- **No new third-party dependency.** `httpx` plus the standard library. The SPEC §12 review that
+  Phase 0 left open is closed by the plan's §1.
+- **OpenTelemetry and the evaluation/policy/provenance adapters are not in Phase 5.**
+- **The container image has still never been built** — Docker is not installed on this machine.
+
+### Next move
+
+**Phase 6 — optional model critics and calibration.** A pluggable LLM critic behind the same
+interface as the deterministic ones, an evaluation corpus, and comparison against the
+deterministic baseline. Re-validates scenarios 19 and 15. It needs its own dependency review
+before anything is added.

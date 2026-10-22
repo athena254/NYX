@@ -83,7 +83,7 @@ unimplemented.
 | 2 — Deterministic critic engine | 4–9, 12, 24 (all passing) |
 | 3 — Disputes and verification | 10, 11, 22, 23 (all passing) |
 | 4 — Security and operational hardening | 13, 14, 15, 16, 17, 18, 19, 20, 21 (all passing) |
-| 5 — Integrations | No numbered scenarios; adapter contract and disablement tests |
+| 5 — Integrations | No numbered scenarios; adapter contract tests and independent disablement (all passing) |
 | 6 — Optional model critics and calibration | 19 (live model path), 15 (model path), calibration thresholds |
 
 ## Evidence required to check a box

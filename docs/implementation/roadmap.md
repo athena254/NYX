@@ -15,7 +15,7 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | 2 | Deterministic critic engine | done (2a and 2b) | 4, 5, 6, 7, 8, 9, 12, 24 |
 | 3 | Disputes and verification | done | 10, 11, 22, 23 |
 | 4 | Security and operational hardening | done | 13, 14, 15, 16, 17, 18, 19, 20, 21 |
-| 5 | Integrations | not started | No numbered scenarios; adapter contract tests and independent disablement |
+| 5 | Integrations | done | No numbered scenarios; adapter contract tests and independent disablement |
 | 6 | Optional model critics and calibration | not started | 19 (re-validated with model critics) plus evaluation-corpus thresholds |
 | 7 | Conversational interface | done | No numbered scenarios; the chat cannot create a finding or record a disposition |
 
@@ -349,26 +349,80 @@ project's own gates or a probe written outside the project's test helpers.
 
 ## Phase 5 — Integrations
 
-**Status:** not started.
+**Status:** done (22 October 2026). Six slices (5.0–5.5), one adapter (Git/CI) with three
+providers (GitHub, local git, fixture). Verified with `uv run pytest` (646 passed, 1 skipped),
+`uv run mypy` (129 files), `uv run ruff check .`, `uv run ruff format --check .` (211 files),
+`uv run alembic upgrade head`, the boundary grep (G7) and the security allowlist (G1), and
+`tmp/probes/probe_git_ci_adapter.py` (34 checks against a real socket and a real migrated
+database).
 
 **Deliverable:** optional adapters that can be enabled independently while core NYX still works.
 
 **Work items**
 
-- Git/CI adapter first: repository, commit, run, artifact, and check associations.
-- OpenTelemetry/OpenInference ingestion where practical.
-- Optional evaluation, policy, and provenance adapters after their contracts are inspected.
-- Ecosystem-specific adapters for ATHENA, ARGUS, DANNY, NOESIS, DMRX, and Ghost Factory only after
-  their current APIs, licenses, maintenance, and data-access constraints are inspected.
-- Contract test, permissions, failure modes, and disablement test for every adapter.
+- [x] Complete the SPEC §12 dependency/license/maturity review before adding any integration
+      dependency. `docs/implementation/phase-5-plan.md` §1 is the audit: **no new third-party
+      dependency** — `httpx` (already installed, BSD-3-Clause) plus the standard library.
+- [x] Shared adapter infrastructure: `Adapter` protocol, registry, health, config fields
+      (slice 5.0), ADR 0008, and the boundary grep (gate G7).
+- [x] Git/CI adapter: repository, commit, run, artifact, and check associations
+      (slices 5.1–5.4).
+- [x] Offline fixture provider (slice 5.5).
+- [x] Contract test, permissions, failure modes, and disablement test for the adapter
+      (slices 5.3 and 5.5).
+- [x] Documented disablement path: `Settings.enabled_adapters` is the deployment filter;
+      `AdapterRegistry.registered()` is the code inventory; `nyx doctor` reports both.
 
 **Exit criteria (SPEC §19):** adapters can be disabled independently and core NYX still works.
+**Met.** `tests/integration/test_adapter_disablement.py` asserts all eight disablement
+properties, including the one that matters most: with the adapter enabled and its host
+unreachable, `health()` is `DEGRADED` and `GET /api/v1/ready` is still `200`.
 
-**Acceptance scenarios:** no numbered section 17.2 scenario gates Phase 5; each adapter must have a
-contract test and a documented disablement path.
+**Acceptance scenarios:** no numbered section 17.2 scenario gates Phase 5; the adapter has a
+contract test (slice 5.3) and a documented disablement path (slice 5.5).
 
 **Explicit non-goals for this phase:** assuming any sibling project already exposes a compatible
 interface, or granting an adapter more authority than its declared capability.
+
+### Slices
+
+| Slice | Commit | What |
+| --- | --- | --- |
+| 5.0 | `c0bc402` | `Adapter` protocol, registry, health, config fields, ADR 0008, boundary grep |
+| 5.1 | `f652fcb` | `GitHubCiClient`, `GitCiConfig` — bounded GET, secret-safe, private-target guard |
+| 5.2 | `f652fcb` | `normalize.py` — GitHub JSON to `EventInput` / `EvidenceInput` |
+| 5.3 | `524afed` | `GitCiAdapter` + the contract test (25 cases over a real socket) |
+| 5.4 | `524afed` | `LocalGitClient` — same interface, reads `.git` with `pathlib`, no subprocess |
+| 5.5 | `b3d5240` | `FixtureCiClient` + the disablement test (the phase's exit criterion) |
+
+### Defects found while landing the phase
+
+None of these were reported by the agents that wrote the slices; each was found by running the
+project's own gates or a probe written outside the project's test helpers.
+
+| # | Defect | Layer |
+| --- | --- | --- |
+| 1 | The lifecycle tests cited evidence ids that **no evidence row backed**, so every one of those findings was a self-consistency violation nothing had detected. Found while closing scenario 24. | tests |
+| 2 | The adapter's evidence **could not be stored at all**: `EvidenceItem` requires a relevance target, and an observing adapter produces evidence before any claim references it. SPEC §5.4 vs §14. | domain |
+| 3 | The adapter's evidence was **invisible to C-001**: the critic reads `pass\|green` / `fail\|broken\|red` from the evidence text, and GitHub says `success`/`failure`, which match neither. | adapter/critic seam |
+| 4 | `nyx doctor` reported only what was *configured*, never what was *registered* vs *enabled*, so an installed-but-disabled adapter was invisible to its operator. | CLI |
+
+**#2 and #3 are the same shape and the important lesson.** A slice's own tests assert the
+*shape* of what it returns; they do not assert that the rest of the system can *consume* it.
+Both defects lived exactly at that seam — one at the domain boundary, one at the critic
+boundary — and both were caught by driving the output through the real ingestion path.
+
+### Honest limitations, recorded rather than hidden
+
+- **The local-git provider reads refs and the reflog, not git objects.** It cannot read commit
+  contents, file lists, or diffs. Stated in the module docstring and in ADR 0008.
+- **`EvidenceItem` now accepts unlinked evidence with a `relevance_note`.** This is an explicit
+  SPEC §5.4 deviation, recorded in ADR 0008, and reversible.
+- **OpenTelemetry and the evaluation/policy/provenance adapters are not in Phase 5.** They are
+  separate adapters needing their own dependency review; the Git/CI adapter is the phase.
+- **The adapter is not wired into `nyx doctor`'s reachability probe.** Doctor reports what is
+  registered and enabled; it does not claim an availability it never checked.
+- **No sibling adapter exists.** §7 of the plan is reconnaissance only; it licenses nothing.
 
 ---
 
