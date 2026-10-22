@@ -16,6 +16,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Patch the base OS before installing anything. The published python:3.12-slim image is Debian
+# trixie, and its shipped packages lag the security updates: four of the HIGH CVEs the container
+# scan reports (perl-base, libsystemd0, libtinfo6, util-linux) have fixes published in trixie
+# that the image does not carry. `uv sync` cannot help here -- these are OS packages, not Python
+# ones. The lists are removed in the same layer so they are not baked into the image.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/*
+
 # uv first, so a change to the source does not invalidate the dependency layer.
 COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /uvx /bin/
 

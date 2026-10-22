@@ -6,10 +6,21 @@
 
 # CVE-2026-76642 — util-linux (bsdutils, libblkid1, liblastlog2-2): unprivileged mount-helper
 #   exit-status check allows privilege escalation via X-mount.idmap / X-mount.owner hooks.
+# CVE-2026-78408 — util-linux: nsenter --join-cgroup leaks root.
+# CVE-2026-78409 — util-linux: X-mount.subdir detached-tree handling.
+# CVE-2026-78410 — util-linux: restricted bind mounts do not pin the source.
+#
 #   WHY IGNORED: the image is based on python:3.12-slim = Debian trixie. Debian's security
-#   tracker marks trixie VULNERABLE with no fix (util-linux <no-dsa>, classified minor) and the
-#   fix (2.42.4-1) exists only in forky/sid. Docker Hub publishes no forky variant of the
-#   `python` image, so there is no patched base to move to. `apt-get upgrade` cannot clear it.
-#   This is tracked in docs/implementation/HANDOFF.md and re-check it when trixie gets a DSA or
-#   a forky-based Python image is published — then delete this entry.
+#   tracker marks trixie VULNERABLE with no fix for these four (util-linux is marked <no-dsa>,
+#   classified minor) and the fixes exist only in forky/sid (2.42.4-1). Docker Hub publishes no
+#   forky variant of the `python` image, so there is no patched base to move to. The Dockerfile
+#   now runs `apt-get upgrade`, which clears the four CVEs that DO have trixie fixes
+#   (CVE-2025-69720, CVE-2026-16742, CVE-2026-54369, CVE-2026-9538); these four remain because
+#   Debian has released nothing for them yet.
+#
+#   This is tracked in docs/implementation/HANDOFF.md. Re-check when trixie gets a DSA or a
+#   forky-based Python image is published — then delete the corresponding entries.
 CVE-2026-76642
+CVE-2026-78408
+CVE-2026-78409
+CVE-2026-78410
