@@ -17,10 +17,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Patch the base OS before installing anything. The published python:3.12-slim image is Debian
-# trixie, and its shipped packages lag the security updates: four of the HIGH CVEs the container
-# scan reports (perl-base, libsystemd0, libtinfo6, util-linux) have fixes published in trixie
-# that the image does not carry. `uv sync` cannot help here -- these are OS packages, not Python
-# ones. The lists are removed in the same layer so they are not baked into the image.
+# trixie, and its shipped packages can lag the security updates. `uv sync` cannot help here --
+# these are OS packages, not Python ones. The lists are removed in the same layer so they are not
+# baked into the image.
+#
+# This clears whatever Debian HAS fixed since the image was published. It does not clear the
+# eight HIGH CVEs listed in .trivyignore: Debian's security tracker marks trixie vulnerable with
+# no fix for all of them (util-linux, systemd, ncurses, acl and perl are each marked <no-dsa>),
+# and the fixes exist only in forky/sid. No forky-based Python image is published, so a future
+# scan may still report them until the base moves.
 RUN apt-get update \
  && apt-get upgrade -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
