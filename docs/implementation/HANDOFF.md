@@ -875,3 +875,45 @@ the independent dispute-loop probe now returns 200 where it returned 500 before 
 The remaining launch blocker is unchanged: **nothing runs unattended.** There is no scheduler or
 worker, so ingestion and critic runs only happen when a human calls them. That is the difference
 between a library and a service.
+
+### Follow-up — the pipeline is green, and the scan found a base-image problem
+
+CI had never been green, and the container scan had never run at all. Both are now fixed, and the
+scan immediately earned its keep.
+
+**CI**: `uv sync --all-groups` syncs dependency *groups*, not optional *extras*, so `mcp` was
+absent and 9 test modules failed to collect. `--all-extras` is the fix. The dev venv already had
+`mcp`, so a naive `uv sync --dry-run` proves nothing — the flag was verified against a clean
+environment.
+
+**Container scan**: `aquasecurity/trivy-action@0.28.0` had no `v` prefix. The prefixed `v0.28.0`
+was *still* broken — its composite action pins `aquasecurity/setup-trivy@v0.2.1`, which does not
+exist. Bumped to `@v0.36.0`, whose transitive refs are pinned by full SHA and both resolve.
+
+**The scan then found real CVEs.** `python:3.12-slim` is Debian trixie, and the Dockerfile never
+ran `apt` at all, so the image shipped whatever Debian published. The scan reported 35 HIGH
+findings across **8 unique CVEs**. Debian's security tracker settles all eight: trixie is
+**vulnerable with no fix**, and the fixes exist only in forky/sid (util-linux, systemd, ncurses,
+acl and perl are each marked `<no-dsa>`). No forky variant of the `python` image is published, so
+there is no patched base to move to.
+
+An `apt-get upgrade` layer was added anyway — it clears whatever Debian *has* fixed, and it is the
+correct hygiene — but the verified position is that it does not clear these eight. They are listed
+in `.trivyignore`, one entry each, with the reason and the date to re-check written in the file.
+`ignore-unfixed: false` is unchanged, so anything not listed still fails the build.
+
+This is a base-image problem, not an NYX problem: the container runs as a non-root user
+(uid 10001) and none of the vulnerable paths are NYX's. **The real remedy is a fixed base image**,
+and the re-check condition is recorded in `.trivyignore`.
+
+**Both workflows are green** as of `cd464bb`: CI 56s, Security scanning 1m05s. The scan log
+confirms it did real work — image built, `.trivyignore` loaded, vulnerability DB downloaded,
+vulnerability and secret scanning enabled, suppressions applied.
+
+### Gates (23 October 2026, final)
+
+`uv run pytest` **648 passed, 1 skipped** · `uv run mypy` clean (129 files) · `uv run ruff check .`
+clean · `uv run ruff format --check .` 213 files · `uv run alembic upgrade head` clean on a fresh
+database · `uv run nyx doctor` all checks passed · `scripts/acceptance_harness.py` ALL PASS / SKIP
+· **CI green** · **Security scanning green** · the independent dispute-loop probe returns 200 where
+it returned 500 before the fix.
