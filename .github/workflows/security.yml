@@ -43,3 +43,6 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: false
+          # Scoped exceptions with reasons, in .trivyignore. Anything not listed still fails.
+          # v0.36.0 renamed this input from `ignorefile` to `trivyignores`.
+          trivyignores: .trivyignore

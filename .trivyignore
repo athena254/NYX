@@ -1,0 +1,15 @@
+# Trivy ignore file — scoped exceptions only, each with its reason written here.
+#
+# This file exists so that one known, documented, upstream-unfixed finding does not either hide
+# behind a blanket `ignore-unfixed` or hold the whole pipeline red. Anything NOT listed here
+# still fails the build at CRITICAL/HIGH.
+
+# CVE-2026-76642 — util-linux (bsdutils, libblkid1, liblastlog2-2): unprivileged mount-helper
+#   exit-status check allows privilege escalation via X-mount.idmap / X-mount.owner hooks.
+#   WHY IGNORED: the image is based on python:3.12-slim = Debian trixie. Debian's security
+#   tracker marks trixie VULNERABLE with no fix (util-linux <no-dsa>, classified minor) and the
+#   fix (2.42.4-1) exists only in forky/sid. Docker Hub publishes no forky variant of the
+#   `python` image, so there is no patched base to move to. `apt-get upgrade` cannot clear it.
+#   This is tracked in docs/implementation/HANDOFF.md and re-check it when trixie gets a DSA or
+#   a forky-based Python image is published — then delete this entry.
+CVE-2026-76642
