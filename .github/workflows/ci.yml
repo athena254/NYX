@@ -22,7 +22,9 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --all-groups --python ${{ matrix.python-version }}
+        # `--all-groups` syncs dependency groups only; `--all-extras` is what pulls in the
+        # optional `conversational` extra (mcp), which tests/unit and tests/security import.
+        run: uv sync --all-groups --all-extras --python ${{ matrix.python-version }}
 
       # The project's own gate set, in the order AGENTS.md defines. Each step fails the job on a
       # non-zero exit, so a red gate cannot be mistaken for a pass.

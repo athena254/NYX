@@ -32,8 +32,12 @@ jobs:
 
       # Trivy fails the job on a FIXABLE or higher finding. Informational findings are reported,
       # not fatal -- a base image with an informational CVE is not a reason to block a merge.
+      # v0.28.0 is unusable: its composite action pins aquasecurity/setup-trivy@v0.2.1, which
+      # does not exist (setup-trivy tags are v0.2.6 / v0.3.0 / v0.3.1), so the job died at the
+      # "Install Trivy" step. v0.36.0 pins setup-trivy and actions/cache by full SHA and both
+      # resolve. Every input below is still valid at v0.36.0.
       - name: Scan the image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: nyx:scan
           severity: CRITICAL,HIGH

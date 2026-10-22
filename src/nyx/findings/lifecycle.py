@@ -622,6 +622,18 @@ class FindingLifecycle:
                 dict.fromkeys([*row.counterevidence_ids, *request.counterevidence_ids])
             )
             finding.counterevidence_ids = list(row.counterevidence_ids)
+            # ``Finding`` requires supporting_evidence_ids | counterevidence_ids to be a
+            # subset of evidence_ids. Appending to counterevidence_ids alone therefore
+            # wrote a row that could never be validated again: every later read of the
+            # finding (GET /api/v1/findings/{id}, its history, and C-010's store check)
+            # raised ValidationError and returned HTTP 500, permanently. The composer
+            # already unions both lists into evidence_ids when it composes a finding;
+            # this is the same rule applied to a later append. Append-only and deduped:
+            # an id already present is not added a second time.
+            row.evidence_ids = list(
+                dict.fromkeys([*row.evidence_ids, *request.counterevidence_ids])
+            )
+            finding.evidence_ids = list(row.evidence_ids)
         self._session.flush()
 
         self._audit_writer.append(

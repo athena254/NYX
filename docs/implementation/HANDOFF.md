@@ -814,3 +814,64 @@ boundary grep (G7) + security allowlist (G1) 22 passed · `docs/openapi.json` un
 interface as the deterministic ones, an evaluation corpus, and comparison against the
 deterministic baseline. Re-validates scenarios 19 and 15. It needs its own dependency review
 before anything is added.
+
+---
+
+## Update — 23 October 2026: NYX was run against itself, and it found a real bug
+
+The question was "is NYX ready for daily use?". The gates said yes; running it on its own
+repository said no. This is the difference between correctness and readiness.
+
+### The self-audit
+
+A fresh database, a real `uvicorn` subprocess, real HTTP, no `nyx.*` imports. NYX was registered
+as a monitored system, facts verified by hand were ingested (HEAD commit, CI status, gate
+results), and the critic pack was run against four claims. 20/20 checks passed, including the
+negative controls: a claim with passing same-commit evidence produced **no** finding.
+
+### Defect found — a disposition could make a finding permanently unreadable
+
+Recording a disposition citing counterevidence wrote a row that violated the domain invariant
+`supporting_evidence_ids ∪ counterevidence_ids ⊆ evidence_ids`. Every later read of that finding
+returned HTTP 500 — permanently, because the row itself was invalid. The composer unions both
+lists when it composes a finding; the lifecycle appended to `counterevidence_ids` only.
+
+Fixed in `src/nyx/findings/lifecycle.py` by the same append-only, deduped union the composer uses.
+Regression test: `tests/unit/test_disposition_counterevidence_regression.py` (2 tests, drives the
+full HTTP scenario and asserts the **read-back** state, not the POST's 200).
+
+Neither the 646-test suite nor the independent acceptance harness caught it, because neither read
+a finding back after recording a disposition.
+
+### Two CI failures, both of which had to be reasoned rather than run
+
+- `uv sync --all-groups` syncs dependency **groups**, not optional **extras**, so `mcp` was absent
+  and 9 test modules failed to collect. `--all-extras` is the fix.
+- `aquasecurity/trivy-action@0.28.0` had no `v` prefix — but the prefixed tag was **still
+  broken**: its composite action pins `aquasecurity/setup-trivy@v0.2.1`, which does not exist
+  (tags are v0.2.6 / v0.3.0 / v0.3.1). Bumped to `@v0.36.0`, whose transitive refs are pinned by
+  full SHA and both resolve. Verified against the GitHub API, not assumed.
+
+### New: NYX watching an agent
+
+`scripts/nyx_watch_agent.py` reads Hermes's own transcript store (`~/.hermes/state.db`) read-only,
+files each assistant turn as a claim and each tool call plus result as evidence, then runs the
+critic pack. On the orchestrator's last 17 turns it reported 2 claims with no tool call behind
+them and 1 unsupported-certainty finding against the orchestrator's own wording.
+
+This proves the wiring, not that the critics are calibrated for agent transcripts: C-001 is
+shaped for completion claims naming a commit and correctly stays quiet. A dedicated
+"unbacked claim" check is the natural next piece.
+
+### Gates (23 October 2026)
+
+`uv run pytest` **648 passed, 1 skipped** · `uv run mypy` clean (129 files) · `uv run ruff check .`
+clean · `uv run ruff format --check .` 213 files · `uv run alembic upgrade head` clean on a fresh
+database · `uv run nyx doctor` all checks passed · `scripts/acceptance_harness.py` ALL PASS / SKIP ·
+the independent dispute-loop probe now returns 200 where it returned 500 before the fix.
+
+### Next move
+
+The remaining launch blocker is unchanged: **nothing runs unattended.** There is no scheduler or
+worker, so ingestion and critic runs only happen when a human calls them. That is the difference
+between a library and a service.
