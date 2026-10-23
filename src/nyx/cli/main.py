@@ -396,20 +396,18 @@ def _adapter_registry_detail(settings: Settings) -> str:
     operator who has the git-ci adapter installed but not enabled would see nothing here and
     reasonably conclude it is not installed.
 
-    Imported lazily so the CLI's ~2.4s import cost is not paid by commands that never ask.
+    The registry itself comes from :func:`nyx.adapters.factory.build_adapter_registry` (ADR
+    0009) so the watcher and this check construct the identical set from the same settings.
     """
 
     try:
-        from nyx.adapters.base import AdapterRegistry
-        from nyx.adapters.git_ci.adapter import GitCiAdapter
-        from nyx.adapters.git_ci.config import GitCiConfig
+        from nyx.adapters.factory import build_adapter_registry
     except ImportError:  # pragma: no cover - the adapter package is a hard Phase 5 dependency
         return "adapter package unavailable"
 
     enabled = set(settings.enabled_adapters)
-    registry = AdapterRegistry(is_enabled=lambda adapter_id: adapter_id in enabled)
     try:
-        registry.register(GitCiAdapter(GitCiConfig.from_settings(settings)))
+        registry = build_adapter_registry(settings)
     except ValidationError as exc:
         # Name the field rather than the exception type: "not constructible" tells an operator
         # nothing, and the usual cause is simply that no repository is configured yet.
