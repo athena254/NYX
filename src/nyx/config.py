@@ -133,6 +133,17 @@ class Settings(BaseSettings):
     # is fetchable is how an SSRF guard and an adapter end up with different answers.
     git_ci_allow_private_targets: bool = False
 
+    # --- ADR 0009: unattended operation ----------------------------------------
+    # Off by default and never a prerequisite: with watch disabled, `nyx watch` refuses with a
+    # named-variable message rather than watching nothing and reporting success.
+    watch_enabled: bool = False
+    # A cycle is idempotent (the ingestion gateway deduplicates by identity), so re-running an
+    # unchanged ref produces no new rows. That is what makes a timer safe.
+    watch_interval_seconds: float = Field(default=300.0, gt=0, le=86_400)
+    # The git ref the watcher observes. "main" by default; an empty value is refused, because
+    # a watcher with no target is silently watching nothing.
+    watch_ref: str = "main"
+
     @model_validator(mode="after")
     def _check_safe_auth_boundary(self) -> Self:
         if self.host not in _LOOPBACK_HOSTS and self.auth_mode == "none":
@@ -209,6 +220,29 @@ class Settings(BaseSettings):
                 "NYX_GIT_CI_ALLOW_PRIVATE_TARGETS=true requires "
                 "NYX_EVIDENCE_ALLOW_PRIVATE_URLS=true; the adapter and the SSRF guard "
                 "must agree about which targets are fetchable"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_watch_configuration(self) -> Self:
+        """Fail closed on a watcher that is switched on but has nothing to watch.
+
+        A watcher with no enabled adapter, or with no target ref, is not a degraded state -- it
+        is a configuration error that would otherwise surface as a process that runs, fetches
+        nothing, and reports success. Refusing at startup names the variable.
+        """
+
+        if not self.watch_enabled:
+            return self
+        if not self.watch_ref.strip():
+            raise ValueError(
+                "NYX_WATCH_ENABLED=true but NYX_WATCH_REF is empty; a watcher with no target "
+                "ref would fetch nothing and report success"
+            )
+        if not self.enabled_adapters:
+            raise ValueError(
+                "NYX_WATCH_ENABLED=true but NYX_ENABLED_ADAPTERS is empty; a watcher with no "
+                "enabled adapter has nothing to observe"
             )
         return self
 
