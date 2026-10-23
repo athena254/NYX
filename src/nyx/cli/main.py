@@ -15,7 +15,10 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from nyx.adapters.base import AdapterRegistry
 
 import typer
 from pydantic import ValidationError
@@ -78,6 +81,8 @@ from nyx.storage.db import (
     session_scope,
 )
 from nyx.storage.migrations import inspect_migrations
+from nyx.watch.loop import run_forever
+from nyx.watch.runner import CycleOutcome, WatchCycle
 
 app = typer.Typer(
     name="nyx",
@@ -512,6 +517,25 @@ def doctor(
         None,
         ("none enabled" if not integrations else f"configured: {', '.join(integrations)}")
         + f"; {_adapter_registry_detail(settings)}",
+    )
+
+    # The watcher is a configuration, not a fault: `nyx watch` refuses to run when it is off, so a
+    # disabled watcher is a pass. When it is on, this reports the validated config (the interval is
+    # positive and the ref non-empty, enforced by Settings) and says plainly that adapter
+    # reachability is checked at run time, not here -- a doctor check reports what it checked.
+    record(
+        "watcher",
+        True,
+        None,
+        (
+            "disabled"
+            if not settings.watch_enabled
+            else (
+                f"enabled: interval={settings.watch_interval_seconds:.0f}s "
+                f"ref={settings.watch_ref} adapters={len(settings.enabled_adapters)} "
+                "(configured; a cycle's reachability is checked at run time, not here)"
+            )
+        ),
     )
 
     record("api_app", *_check_api_app())
@@ -1304,6 +1328,112 @@ def telegram_serve(
         asyncio.run(_serve())
     except KeyboardInterrupt:
         typer.echo("stopped.", err=True)
+
+
+# --------------------------------------------------------------------------- watch
+
+
+class _AdapterInventory:
+    """The narrow adapter view the watcher needs, over the shared adapter registry.
+
+    ``AdapterRegistry.enabled()`` returns descriptors; the cycle iterates adapters, so this maps
+    each enabled descriptor back to its adapter. It lives in the CLI because gate G7 lets only
+    ``api/app.py`` and ``cli/main.py`` import ``nyx.adapters`` (ADR 0009).
+    """
+
+    def __init__(self, registry: AdapterRegistry) -> None:
+        self._registry = registry
+
+    def enabled(self) -> list[Any]:
+        return [
+            self._registry.get(descriptor.adapter_id) for descriptor in self._registry.enabled()
+        ]
+
+
+def _watch_cycle() -> tuple[WatchCycle, Engine]:
+    """Build the watcher's cycle and the engine that must outlive it.
+
+    The engine is returned so the caller can dispose it after the loop ends; a cycle that outlived
+    its engine would fail on the first ``session_scope``. The registry comes from the same
+    :func:`nyx.adapters.factory.build_adapter_registry` call ``nyx doctor`` uses, so both observe
+    the identical enabled set from the identical settings (ADR 0009).
+    """
+
+    from nyx.adapters.factory import build_adapter_registry
+
+    settings = Settings()
+    engine = create_engine_from_settings(settings)
+    factory = create_session_factory(engine)
+    # Keep the watcher's critic set identical to the API's and the CLI's: C-010 audits NYX's own
+    # store, so it must be handed the same session factory the watcher just built.
+    register_storage_backed(factory)
+    registry = build_adapter_registry(settings)
+    cycle = WatchCycle(
+        session_factory=factory, settings=settings, inventory=_AdapterInventory(registry)
+    )
+    return cycle, engine
+
+
+def _emit_outcomes(outcomes: list[CycleOutcome], json_output: bool) -> None:
+    """Print one cycle's per-adapter outcomes, never carrying a credential in ``detail``.
+
+    ``CycleOutcome.detail`` is composed from identifiers, counts, and adapter-authored health
+    prose only (see ``src/nyx/watch/runner.py``), so it is safe to echo even in ``--json``.
+    """
+
+    if json_output:
+        typer.echo(json.dumps([outcome.model_dump(mode="json") for outcome in outcomes], indent=2))
+        return
+    for outcome in outcomes:
+        marker = "" if outcome.state == "ok" else f"  [{outcome.state}]"
+        typer.echo(
+            f"{outcome.adapter_id}: {outcome.state}{marker} "
+            f"fetched={outcome.fetched} ingested={outcome.ingested} "
+            f"duplicates={outcome.duplicates} findings={outcome.findings}"
+        )
+
+
+@app.command("watch")
+def watch(
+    once: bool = typer.Option(False, "--once", help="Run a single cycle and exit 0."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Watch the enabled adapters on a schedule (ADR 0009).
+
+    Read-only: it fetches, ingests through the ordinary gateway, criticises, and audits. It never
+    files a rebuttal, never records a disposition, and never changes a lifecycle state. A cycle is
+    idempotent, so a supervisor may re-run it freely. It does not daemonise itself: run it under a
+    supervisor (systemd, a cron loop, a container restart policy) that keeps it alive.
+    """
+
+    settings = Settings()
+    if not settings.watch_enabled:
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.FORBIDDEN.value,
+                message=(
+                    "NYX_WATCH_ENABLED is false. Set it to true in .env, with NYX_WATCH_REF and "
+                    "at least one NYX_ENABLED_ADAPTERS, to watch on a schedule."
+                ),
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1)
+
+    cycle, engine = _watch_cycle()
+    try:
+        if once:
+            _emit_outcomes(cycle.run_once(), json_output)
+            return
+        typer.echo("NYX watcher. Ctrl-C to stop.", err=True)
+        try:
+            for outcomes in run_forever(cycle, interval_seconds=settings.watch_interval_seconds):
+                _emit_outcomes(outcomes, json_output)
+        except KeyboardInterrupt:
+            typer.echo("stopped.", err=True)
+    finally:
+        engine.dispose()
 
 
 # --------------------------------------------------------------------------- retention

@@ -40,6 +40,57 @@ Readiness semantics:
 
 A failed readiness check never reports successful ingestion.
 
+## Running the watcher
+
+`nyx watch` observes the enabled adapters on a schedule and records what it finds. It is the
+component that turns NYX from a tool you drive into a service that watches things for you. It is
+**off by default** and must be switched on explicitly. Design and constraints are in
+[`docs/adr/0009-unattended-operation.md`](adr/0009-unattended-operation.md).
+
+What a cycle does, for each enabled adapter: probe its health, fetch the configured ref, push the
+adapter's findings through the ordinary ingestion gateway (so they inherit redaction, schema
+validation, and deduplication for free), run the deterministic critic pack, and append one
+`watch.cycle` audit entry. It is **read-only**: it never files a rebuttal, never records a
+disposition, and never changes a lifecycle state. A finding it produces is an ordinary
+`detected` finding that a human still closes.
+
+Enable it:
+
+```bash
+# .env
+NYX_WATCH_ENABLED=true
+NYX_WATCH_REF=main            # the git ref to observe; required, never empty
+NYX_WATCH_INTERVAL_SECONDS=300  # between cycles; 0 < x <= 86400
+# plus the adapter config the watcher shares with the rest of NYX (e.g. NYX_ENABLED_ADAPTERS,
+# NYX_GIT_CI_REPOSITORY, ...) -- see the Configuration section above.
+```
+
+Run it once (for cron, or to check it works):
+
+```bash
+uv run python -m nyx.cli.main watch --once
+```
+
+Run it continuously (under a supervisor — NYX does not daemonise itself):
+
+```bash
+uv run python -m nyx.cli.main watch
+```
+
+Two properties that make a scheduled watcher safe:
+
+- **A cycle is idempotent.** Fetching the same unchanged ref twice creates no new rows the second
+  time — ingestion deduplicates on identity. A supervisor may re-run `--once` freely.
+- **One bad cycle never kills the loop.** An adapter that is down is recorded as a `degraded`
+  outcome with the reason in its detail, and the loop continues. `nyx watch` never exits on a
+  network blip; process supervision (systemd, a cron loop, a container restart policy) is what
+  keeps it alive, and is a host concern NYX deliberately does not re-implement.
+
+Fail-closed: with `NYX_WATCH_ENABLED` unset or false, `nyx watch` refuses with a named-variable
+message and a non-zero exit — it never watches nothing and reports success. `nyx doctor` reports
+the watcher's configuration (enabled, interval, ref) but does not probe adapter reachability
+there; that is checked at run time, inside each cycle.
+
 ## API rate limiting
 
 The HTTP API applies a per-caller sliding-window rate limit, enabled by default. Callers are keyed
