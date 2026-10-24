@@ -221,6 +221,8 @@ class CriticRunRow(Base):
     critic_version: Mapped[str] = mapped_column(String(64), nullable=False)
     rule_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    model_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     input_refs: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     input_hashes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -230,6 +232,7 @@ class CriticRunRow(Base):
     tool_run_refs: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     resource_usage: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     failure_details: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    llm_io: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     finding_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 
 

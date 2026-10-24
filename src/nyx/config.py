@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=300.0, gt=0)
     llm_max_retries: int = Field(default=0, ge=0)
     llm_max_tool_rounds: int = Field(default=8, ge=1, le=20)
+
+    # --- Phase 6: the optional model critic (SPEC §13) ---------------------------
+    # Off by default: the deterministic critic pack is the core, and enabling c011 sends
+    # event context to whatever provider NYX_LLM_* names. Prompt logging is a second,
+    # separate opt-in because a prompt can carry personal data even after redaction.
+    llm_critic_enabled: bool = False
+    llm_log_prompts: bool = False
+
     # Telegram front-end (Phase 7 slice 6.4). Disabled by default; when enabled it refuses to
     # start without a token and an explicit allowlist, so a bot can never serve strangers.
     telegram_enabled: bool = False
@@ -188,6 +196,11 @@ class Settings(BaseSettings):
                 "NYX_LLM_ENABLED=true requires NYX_LLM_MODEL to be set; "
                 "the chat shell will not guess a model"
             )
+        if self.llm_critic_enabled and not self.llm_model:
+            raise ValueError(
+                "NYX_LLM_CRITIC_ENABLED=true requires NYX_LLM_MODEL to be set; "
+                "the model critic will not guess a model"
+            )
         if self.telegram_enabled:
             # Fail closed, and say which variable is missing. A bot with no allowlist is a bot
             # that answers anyone who finds it, which is the one thing it must never do.
@@ -303,13 +316,36 @@ def redact_database_url(url: str) -> str:
     return urlunsplit((parts.scheme, host, parts.path, parts.query, parts.fragment))
 
 
+def redact_url(url: str) -> str:
+    """Render any URL without a password component.
+
+    ``redact_database_url`` only ever ran for the ``database_url`` key, so a password embedded in
+    any *other* URL setting -- ``llm_base_url``, a webhook target, a future adapter base URL -- was
+    echoed verbatim by ``display_effective_config``. ``httpx`` turns ``scheme://user:pass@host``
+    into a Basic auth header on its own, so a password in a URL is live credential material, not
+    decoration, and the diagnostic that prints settings must not print it.
+    """
+
+    parts = urlsplit(url)
+    if parts.password is None:
+        return url
+    host = parts.hostname or ""
+    if parts.port is not None:
+        host = f"{host}:{parts.port}"
+    if parts.username is not None:
+        host = f"{parts.username}@{host}"
+    return urlunsplit((parts.scheme, host, parts.path, parts.query, parts.fragment))
+
+
 def _redact_setting(key: str, value: Any) -> Any:
     if isinstance(value, SecretStr):
         return "***redacted***"
-    if key == "database_url" and isinstance(value, str):
-        return redact_database_url(value)
     if _looks_secret(key):
         return "***redacted***"
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, str) and "://" in value:
+        # Any URL can carry credentials in its authority. Only the scheme is checked, so a URL
+        # with no password at all is returned untouched and a URL with one is scrubbed.
+        return redact_url(value)
     return value

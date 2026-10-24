@@ -12,7 +12,7 @@ is never evidence that the underlying claim is true.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, StringConstraints, model_validator
 
@@ -82,6 +82,10 @@ class CriticRun(NyxModel):
     critic_version: Annotated[str, StringConstraints(min_length=1, max_length=64)]
     rule_version: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
     model_version: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
+    # SPEC §13: a model critic records which provider and prompt template produced its run.
+    # Both stay null for deterministic critics, which have neither.
+    model_provider: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
+    prompt_version: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
     input_refs: list[Identifier] = Field(min_length=1, max_length=256)
     input_hashes: list[Digest] = Field(default_factory=list, max_length=256)
     started_at: UtcDatetime
@@ -93,6 +97,9 @@ class CriticRun(NyxModel):
     )
     resource_usage: dict[str, float] | None = None
     failure_details: RationaleText | None = None
+    #: The prompt and raw response, present only when prompt logging is explicitly enabled.
+    #: Redacted at the persistence boundary, never trusted as display text.
+    llm_io: dict[str, Any] | None = None
     finding_id: Identifier | None = None
 
     @model_validator(mode="after")

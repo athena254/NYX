@@ -12,7 +12,7 @@ service layer persists the run and composes any finding.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from pydantic import Field
 
@@ -75,6 +75,15 @@ class CriticResult(NyxModel):
     claim_ids: list[Identifier] = Field(default_factory=list, max_length=64)
     event_ids: list[Identifier] = Field(default_factory=list, max_length=256)
     confidence: Confidence | None = None
+
+    # SPEC §13 provenance. A deterministic critic leaves these null; a model critic records the
+    # provider, model, and prompt-template version that produced the assessment, plus token usage
+    # and (only when logging is explicitly enabled) the redacted prompt/response pair.
+    model_provider: str | None = Field(default=None, max_length=64)
+    model_version: str | None = Field(default=None, max_length=128)
+    prompt_version: str | None = Field(default=None, max_length=64)
+    resource_usage: dict[str, float] | None = None
+    llm_io: dict[str, Any] | None = None
 
 
 @runtime_checkable

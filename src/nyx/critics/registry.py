@@ -163,6 +163,11 @@ def run_selected(
             result=result.result,
             rationale=result.rationale,
             failure_details=failure_details,
+            model_provider=result.model_provider,
+            model_version=result.model_version,
+            prompt_version=result.prompt_version,
+            resource_usage=result.resource_usage,
+            llm_io=_redacted_llm_io(result.llm_io),
         )
         CriticRunRepository(session).add(run)
 
@@ -251,6 +256,11 @@ def rerun_for_verification(
             rationale=result.rationale,
             failure_details=failure_details,
             finding_id=finding.id,
+            model_provider=result.model_provider,
+            model_version=result.model_version,
+            prompt_version=result.prompt_version,
+            resource_usage=result.resource_usage,
+            llm_io=_redacted_llm_io(result.llm_io),
         )
         CriticRunRepository(session).add(run)
         outcomes.append(
@@ -359,6 +369,20 @@ def _error_result(critic: Critic, exc: Exception, context: CriticContext) -> Cri
         ),
         recommended_next_step="Inspect the critic run failure details and rerun the critic.",
     )
+
+
+def _redacted_llm_io(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Redact a prompt/response payload at the persistence boundary.
+
+    The critic may hand back the exact prompt it sent and the raw reply it received, which can
+    contain user-supplied text. It runs through the same redaction rules as every other stored
+    payload before it is written to ``critic_runs.llm_io``.
+    """
+
+    if payload is None:
+        return None
+    redacted, _ = redact(payload)
+    return redacted if isinstance(redacted, dict) else None
 
 
 def _redact_failure(exc: Exception) -> str:

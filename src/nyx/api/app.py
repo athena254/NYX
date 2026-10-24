@@ -28,6 +28,7 @@ from nyx.auth.checker import ConfigBackedCapabilityChecker
 from nyx.auth.store import CapabilityStore
 from nyx.config import Settings
 from nyx.critics import register_storage_backed
+from nyx.critics.llm_registration import register_llm_critic
 from nyx.disputes.verification import default_allowlist
 from nyx.findings.service import FindingService
 from nyx.ingestion.service import IngestionService
@@ -92,6 +93,11 @@ def create_app(
     # C-010 audits NYX's own store, so it must be handed THIS session factory -- the one every
     # request writes through -- or it would inspect a different database than the live one.
     register_storage_backed(session_factory)
+
+    # The optional model critic is registered from the same settings the request path uses, so
+    # enabling it in one process and not another fails visibly here rather than silently
+    # producing different runs. Disabled by default; registration is a no-op otherwise.
+    register_llm_critic(effective)
 
     # Rate limiting sits INSIDE RequestIdMiddleware. Starlette builds the stack so the last
     # middleware added is outermost, and a refused request must still carry a request id and be

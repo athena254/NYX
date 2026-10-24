@@ -167,10 +167,16 @@ def _run(
     *,
     event_id: str,
     transport: _FakeTransport | None,
+    timeout_seconds: float | None = None,
 ) -> tuple[list[FindingRow], list[CriticRunRow]]:
     """Run only the LLM critic through the real registry, then read the database back."""
 
-    register(LlmCritic(transport=transport, schema=OUTPUT_SCHEMA))
+    critic = (
+        LlmCritic(transport=transport, schema=OUTPUT_SCHEMA)
+        if timeout_seconds is None
+        else LlmCritic(transport=transport, schema=OUTPUT_SCHEMA, timeout_seconds=timeout_seconds)
+    )
+    register(critic)
     with session_scope(factory) as session:
         outcomes = run_selected(session, event_id=event_id, critic_ids=[CRITIC_ID])
     assert len(outcomes) == 1
@@ -209,6 +215,31 @@ def test_timeout_writes_no_finding(
 
     _assert_no_finding(findings, runs, expected_results={"error"})
     assert transport.calls, "the critic must actually attempt the transport"
+
+
+def test_the_configured_timeout_reaches_the_transport(
+    service: IngestionService,
+    session_factory: SessionFactory,
+    restore_registry: None,
+) -> None:
+    """Phase 6 wiring: the critic and its provider share one deadline.
+
+    The Phase 4 critic passed a module constant, which made the configured provider timeout
+    invisible to the model call. The constructor now owns it.
+    """
+
+    event_id, _ = _seed(service)
+    transport = _FakeTransport(response=json.dumps(_assessment(result="no_finding")))
+
+    _run(
+        session_factory,
+        event_id=event_id,
+        transport=transport,
+        timeout_seconds=12.5,
+    )
+
+    assert transport.calls
+    assert transport.calls[0]["timeout_seconds"] == 12.5
 
 
 def test_invalid_json_writes_no_finding(

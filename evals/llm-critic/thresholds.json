@@ -1,0 +1,11 @@
+{
+  "status": "pending",
+  "corpus": "evals/llm-critic/corpus.jsonl",
+  "metrics": null,
+  "note": "Thresholds are a regression floor produced by one recorded live run. No live run has been performed yet, so no numbers are invented here. Run scripts/eval_llm_critic.py --live, record the result in docs/implementation/phase-6-evaluation.md, and replace this object with the measured floors.",
+  "open_items": [
+    "Run the corpus against the owner-approved provider and record the result.",
+    "Set min_accuracy, max_false_negatives, and max_false_positives from that run, with a margin.",
+    "Re-run the corpus whenever the prompt template version changes."
+  ]
+}

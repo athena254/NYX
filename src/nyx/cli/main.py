@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -20,11 +21,18 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from nyx.adapters.base import AdapterRegistry
 
+import httpx
 import typer
 from pydantic import ValidationError
 from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 
+from nyx.adapters.base import AdapterState
+from nyx.audit.checkpoint import (
+    CheckpointError,
+    compare_against_checkpoint,
+    write_checkpoint,
+)
 from nyx.audit.verifier import VerificationReport, verify_chain
 from nyx.auth.checker import ConfigBackedCapabilityChecker
 from nyx.auth.store import ANONYMOUS_PRINCIPAL_ID, CapabilityStore
@@ -42,6 +50,7 @@ from nyx.conversational.telegram.adapter import TelegramError
 from nyx.conversational.telegram.bot import TelegramBot
 from nyx.conversational.telegram.config import TelegramConfig
 from nyx.critics import register_storage_backed
+from nyx.critics.llm_registration import register_llm_critic
 from nyx.critics.registry import CriticRegistryError, list_critics
 from nyx.disputes.service import (
     DisputeError,
@@ -72,9 +81,11 @@ from nyx.findings.service import FindingQuery, FindingService
 from nyx.ingestion.errors import IngestResult, StructuredError
 from nyx.ingestion.limits import LimitExceededError
 from nyx.ingestion.service import IngestionService
+from nyx.llm.provider import LLMConfig, safe_url
 from nyx.retention.policy import RetentionPolicy
 from nyx.retention.redaction import RedactionDeniedError, RedactionService, RetentionAuthoriser
 from nyx.retention.service import RetentionService
+from nyx.seed.demo import SeedError, seed_demo_from_settings
 from nyx.storage.db import (
     create_engine_from_settings,
     create_session_factory,
@@ -208,6 +219,7 @@ def _finding_service() -> FindingService:
     # Keep the CLI's critic set identical to the API's: C-010 audits NYX's own store, so it
     # must be handed the same session factory the CLI just built.
     register_storage_backed(factory)
+    register_llm_critic(settings)
     return FindingService(factory)
 
 
@@ -428,126 +440,168 @@ def _adapter_registry_detail(settings: Settings) -> str:
         f"{descriptor.adapter_id}={'enabled' if descriptor.adapter_id in enabled else 'disabled'}"
         for descriptor in descriptors
     )
-    return f"registered: {states}"
+    # A descriptor whose adapter is installed but not constructible is named as such, so an
+    # operator who later enables it finds the missing field rather than a bare "disabled" that
+    # hides the misconfiguration.
+    unconstructible = [
+        descriptor.adapter_id
+        for descriptor in descriptors
+        if descriptor.description.startswith(f"{descriptor.adapter_id} is installed but")
+    ]
+    detail = (
+        f"; {', '.join(unconstructible)} registered but not constructible: "
+        + ", ".join(
+            descriptor.description.split("; ", 1)[1]
+            for descriptor in descriptors
+            if descriptor.adapter_id in unconstructible
+        )
+        if unconstructible
+        else ""
+    )
+    return f"registered: {states}{detail}"
 
 
 @app.command()
 def doctor(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    probe: bool = typer.Option(
+        False,
+        "--probe",
+        help=(
+            "Also probe reachability of the configured LLM endpoint and enabled adapters. "
+            "Opt-in: a probe turns a third party being down into a failed check."
+        ),
+    ),
 ) -> None:
-    """Check configuration, database, migrations, writable paths, API, and OpenAPI freshness."""
+    """Check configuration, database, migrations, writable paths, API, and OpenAPI freshness.
 
-    checks: list[dict[str, Any]] = []
+    With ``--probe``, two more checks run: the LLM endpoint's ``GET /v1/models`` (or Anthropic's
+    ``GET /v1/models`` when the protocol is Anthropic) and ``health()`` for every **enabled**
+    adapter. The probe is reachability only -- it never mutates, ingests, or runs a critic -- and a
+    probe failure is a failed check, because the operator explicitly asked.
+    """
+    # Alembic and the HTTP client log at INFO while doctor inspects migrations and probes
+    # reachability. A CLI whose stdout is one JSON document cannot let a library write in
+    # front of it, so the whole command body runs with those loggers suppressed.
+    with _quiet_logging():
+        checks: list[dict[str, Any]] = []
 
-    def record(name: str, ok: bool, code: str | None, message: str) -> None:
-        checks.append(
-            {
-                "check": name,
-                "status": "ok" if ok else "fail",
-                "code": code,
-                "message": message,
-            }
-        )
+        def record(name: str, ok: bool, code: str | None, message: str) -> None:
+            checks.append(
+                {
+                    "check": name,
+                    "status": "ok" if ok else "fail",
+                    "code": code,
+                    "message": message,
+                }
+            )
 
-    try:
-        settings = Settings()
-    except ValidationError as exc:
-        record("configuration", False, ErrorCode.INVALID_REQUEST.value, "invalid settings")
-        locations = ", ".join(
-            ".".join(str(part) for part in error.get("loc", ())) or "<root>"
-            for error in exc.errors(include_input=False)
-        )
-        _finish_doctor(checks, json_output, extra=f"configuration errors at: {locations}")
-        raise typer.Exit(code=1) from None
-    except Exception as exc:  # noqa: BLE001
+        try:
+            settings = Settings()
+        except ValidationError as exc:
+            record("configuration", False, ErrorCode.INVALID_REQUEST.value, "invalid settings")
+            locations = ", ".join(
+                ".".join(str(part) for part in error.get("loc", ())) or "<root>"
+                for error in exc.errors(include_input=False)
+            )
+            _finish_doctor(checks, json_output, extra=f"configuration errors at: {locations}")
+            raise typer.Exit(code=1) from None
+        except Exception as exc:  # noqa: BLE001
+            record(
+                "configuration",
+                False,
+                ErrorCode.INTERNAL_ERROR.value,
+                f"could not load settings ({type(exc).__name__})",
+            )
+            _finish_doctor(checks, json_output)
+            raise typer.Exit(code=1) from None
+
+        backend = make_url(settings.database_url).get_backend_name()
         record(
             "configuration",
-            False,
-            ErrorCode.INTERNAL_ERROR.value,
-            f"could not load settings ({type(exc).__name__})",
+            True,
+            None,
+            f"host={settings.host} port={settings.port} database={backend} "
+            f"redaction={settings.redaction_enabled} auth_mode={settings.auth_mode}",
         )
-        _finish_doctor(checks, json_output)
-        raise typer.Exit(code=1) from None
 
-    backend = make_url(settings.database_url).get_backend_name()
-    record(
-        "configuration",
-        True,
-        None,
-        f"host={settings.host} port={settings.port} database={backend} "
-        f"redaction={settings.redaction_enabled} auth_mode={settings.auth_mode}",
-    )
-
-    record(
-        "data_directory",
-        _check_data_dir(settings.data_dir),
-        ErrorCode.STORAGE_UNAVAILABLE.value,
-        f"data directory {settings.data_dir} writable",
-    )
-
-    engine: Engine | None = None
-    try:
-        engine = create_engine_from_settings(settings)
-        with engine.connect() as connection:
-            connection.exec_driver_sql("SELECT 1")
-        record("database", True, None, "reachable")
-    except Exception as exc:  # noqa: BLE001
         record(
-            "database",
-            False,
+            "data_directory",
+            _check_data_dir(settings.data_dir),
             ErrorCode.STORAGE_UNAVAILABLE.value,
-            f"not reachable ({type(exc).__name__})",
+            f"data directory {settings.data_dir} writable",
         )
 
-    if engine is not None:
-        state = inspect_migrations(settings.database_url, engine)
-        record("migrations", state.at_head, ErrorCode.DATABASE_NOT_READY.value, state.summary())
-        engine.dispose()
-
-    integrations = [*settings.enabled_adapters]
-    if settings.llm_enabled:
-        integrations.insert(0, "llm")
-    # An enabled optional integration is a *configuration*, not a fault. This check used to record
-    # a failure for any configured integration while never verifying availability, so a correct
-    # deployment failed `nyx doctor`. It now reports what is configured and leaves the
-    # reachability probe to a future change rather than claiming an availability it never checked.
-    record(
-        "optional_integrations",
-        True,
-        None,
-        ("none enabled" if not integrations else f"configured: {', '.join(integrations)}")
-        + f"; {_adapter_registry_detail(settings)}",
-    )
-
-    # The watcher is a configuration, not a fault: `nyx watch` refuses to run when it is off, so a
-    # disabled watcher is a pass. When it is on, this reports the validated config (the interval is
-    # positive and the ref non-empty, enforced by Settings) and says plainly that adapter
-    # reachability is checked at run time, not here -- a doctor check reports what it checked.
-    record(
-        "watcher",
-        True,
-        None,
-        (
-            "disabled"
-            if not settings.watch_enabled
-            else (
-                f"enabled: interval={settings.watch_interval_seconds:.0f}s "
-                f"ref={settings.watch_ref} adapters={len(settings.enabled_adapters)} "
-                "(configured; a cycle's reachability is checked at run time, not here)"
+        engine: Engine | None = None
+        try:
+            engine = create_engine_from_settings(settings)
+            with engine.connect() as connection:
+                connection.exec_driver_sql("SELECT 1")
+            record("database", True, None, "reachable")
+        except Exception as exc:  # noqa: BLE001
+            record(
+                "database",
+                False,
+                ErrorCode.STORAGE_UNAVAILABLE.value,
+                f"not reachable ({type(exc).__name__})",
             )
-        ),
-    )
 
-    record("api_app", *_check_api_app())
-    record("openapi_current", *_check_openapi())
+        if engine is not None:
+            state = inspect_migrations(settings.database_url, engine)
+            record("migrations", state.at_head, ErrorCode.DATABASE_NOT_READY.value, state.summary())
+            engine.dispose()
 
-    _finish_doctor(
-        checks,
-        json_output,
-        effective_config=settings.display_effective_config(),
-    )
-    if any(check["status"] == "fail" for check in checks):
-        raise typer.Exit(code=1)
+        integrations = [*settings.enabled_adapters]
+        if settings.llm_enabled:
+            integrations.insert(0, "llm")
+        # An enabled optional integration is a *configuration*, not a fault. This check used
+        # to record
+        # a failure for any configured integration while never verifying availability, so a
+        # correct deployment failed `nyx doctor`. It now reports what is configured and leaves
+        # the reachability probe to `doctor --probe` rather than claiming an availability it
+        # never checked.
+        record(
+            "optional_integrations",
+            True,
+            None,
+            ("none enabled" if not integrations else f"configured: {', '.join(integrations)}")
+            + f"; {_adapter_registry_detail(settings)}",
+        )
+
+        # The watcher is a configuration, not a fault: `nyx watch` refuses to run when it is
+        # off, so a disabled watcher is a pass. When it is on, this reports the validated config
+        # (the interval is positive and the ref non-empty, enforced by Settings) and says plainly
+        # that adapter reachability is checked at run time, not here -- a doctor check reports
+        # what it checked.
+        record(
+            "watcher",
+            True,
+            None,
+            (
+                "disabled"
+                if not settings.watch_enabled
+                else (
+                    f"enabled: interval={settings.watch_interval_seconds:.0f}s "
+                    f"ref={settings.watch_ref} adapters={len(settings.enabled_adapters)} "
+                    "(configured; a cycle's reachability is checked at run time, not here)"
+                )
+            ),
+        )
+
+        record("api_app", *_check_api_app())
+        record("openapi_current", *_check_openapi())
+
+        if probe:
+            for name, ok, code, message in _probe_checks(settings):
+                record(name, ok, code, message)
+
+        _finish_doctor(
+            checks,
+            json_output,
+            effective_config=settings.display_effective_config(),
+        )
+        if any(check["status"] == "fail" for check in checks):
+            raise typer.Exit(code=1)
 
 
 def _finish_doctor(
@@ -626,6 +680,209 @@ def _check_data_dir(data_dir: Path) -> bool:
     return True
 
 
+#: The ceiling on one reachability probe. A probe is a diagnostic, and a diagnostic that hangs is
+#: worse than one that reports "unreachable": five seconds is long enough for a healthy local
+#: gateway and short enough that an operator is not left waiting on a dead host.
+_PROBE_TIMEOUT_SECONDS = 5.0
+
+#: The loggers whose per-request chatter must never reach stdout. ``httpx`` logs every request at
+#: INFO, and a CLI command that emits one JSON document on stdout breaks its own contract if a
+#: library writes a line in front of it. Scoped to the probe rather than to the root logger: the
+#: operator's own log level is their choice, and this is about *who is speaking*, not how loud.
+_HTTP_CLIENT_LOGGERS: tuple[str, ...] = ("httpx", "httpcore")
+
+#: Loggers that emit during a diagnostic without being asked to, and whose records carry no
+#: diagnostic value for the operator: alembic's migration progress and SQLAlchemy's engine echo.
+#: Alembic configures its own logger with an explicit level, so it does not inherit the root level
+#: a caller sets -- which is why a plain "raise the root level" guard is not enough.
+_QUIET_LOGGERS: tuple[str, ...] = ("alembic", "alembic.runtime.migration", "sqlalchemy.engine")
+
+
+@contextmanager
+def _quiet_logging() -> Iterator[None]:
+    """Suppress loggers that would write into a diagnostic's captured output.
+
+    Two different failures come from logging during a captured CLI run:
+
+    * alembic logs "Context impl SQLiteImpl." at INFO while ``doctor`` inspects migrations. Its
+      logger has an explicit level, so raising the *root* level does not stop the record.
+    * ``httpx`` logs every request, which is how a probe's own traffic reached stdout in front of
+      the JSON a caller was parsing.
+
+    Under pytest those records reach a handler whose stream may already be closed, and the *handler*
+    prints a "--- Logging error ---" traceback into the captured output -- which makes a passing
+    command look like it emitted prose and breaks the CLI contract that stdout is exactly one JSON
+    document. Both loggers are restored afterwards, so a diagnostic does not change how the process
+    logs.
+    """
+
+    targets = [logging.getLogger(name) for name in (*_QUIET_LOGGERS, *_HTTP_CLIENT_LOGGERS)]
+    previous = [(logger, logger.disabled, logger.level) for logger in targets]
+    for logger in targets:
+        logger.disabled = True
+    try:
+        yield
+    finally:
+        for logger, was_disabled, level in previous:
+            logger.disabled = was_disabled
+            logger.setLevel(level)
+
+
+def _probe_llm_endpoint(settings: Settings) -> tuple[str, bool, str | None, str]:
+    """One bounded ``GET`` against the configured provider's model listing.
+
+    Reachability only. It never sends a prompt, never creates a completion, and never reads a
+    response body -- a 2xx is the smallest honest proof that the host answers and the credential is
+    accepted. The URL is scrubbed with :func:`nyx.llm.provider.safe_url`, which exists because a
+    ``base_url`` carrying a password would otherwise be echoed by ``httpx`` as an auth header and
+    appear in the diagnostic.
+    """
+
+    if not settings.llm_model and not settings.llm_enabled and not settings.llm_critic_enabled:
+        # Nothing is configured to use a provider, so there is nothing to probe. Reported as a
+        # pass with the reason named, because a probe of nothing is not a failure.
+        return "llm_probe:llm_endpoint", True, None, "no LLM endpoint configured (nothing to probe)"
+
+    config = LLMConfig(
+        protocol=settings.llm_protocol,
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key.get_secret_value() if settings.llm_api_key else None,
+        model=settings.llm_model or "probe",
+        timeout_seconds=_PROBE_TIMEOUT_SECONDS,
+    )
+    try:
+        origin = _provider_origin(config)
+    except ValueError as exc:
+        # A credential-bearing base_url is refused by encode_request too; the probe reports the same
+        # refusal as a failed check rather than as a traceback, and names the variable instead of
+        # the URL that carries the secret.
+        return (
+            "llm_probe:llm_endpoint",
+            False,
+            ErrorCode.INVALID_REQUEST.value,
+            str(exc),
+        )
+    url = f"{origin}/v1/models"
+    headers = {"Content-Type": "application/json"}
+    if config.api_key:
+        headers["Authorization" if config.protocol == "openai" else "x-api-key"] = config.api_key
+
+    try:
+        with _quiet_logging():
+            response = httpx.get(url, headers=headers, timeout=_PROBE_TIMEOUT_SECONDS)
+    except httpx.TimeoutException:
+        return (
+            "llm_probe:llm_endpoint",
+            False,
+            ErrorCode.DEPENDENCY_UNAVAILABLE.value,
+            f"LLM endpoint timed out after {_PROBE_TIMEOUT_SECONDS:.0f}s at {safe_url(url)}",
+        )
+    except httpx.HTTPError as exc:
+        return (
+            "llm_probe:llm_endpoint",
+            False,
+            ErrorCode.DEPENDENCY_UNAVAILABLE.value,
+            f"LLM endpoint unreachable at {safe_url(url)} ({type(exc).__name__})",
+        )
+
+    if response.status_code >= 400:
+        # The status class is the diagnostic; the body is not, because an error body can echo the
+        # request URL or the credential.
+        return (
+            "llm_probe:llm_endpoint",
+            False,
+            ErrorCode.DEPENDENCY_UNAVAILABLE.value,
+            f"LLM endpoint at {safe_url(url)} returned HTTP {response.status_code}",
+        )
+    return "llm_probe:llm_endpoint", True, None, f"LLM endpoint reachable at {safe_url(url)}"
+
+
+def _provider_origin(config: LLMConfig) -> str:
+    """The provider's origin with any embedded credentials removed, mirroring ``_origin``.
+
+    ``encode_request`` already refuses a credential-bearing ``base_url``; this helper applies the
+    same rule to the probe URL so a probe cannot leak what a real request would refuse to send.
+    """
+
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(config.base_url)
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("NYX_LLM_BASE_URL must not embed credentials; set NYX_LLM_API_KEY instead")
+    return config.base_url.rstrip("/")
+
+
+def _probe_adapters(settings: Settings) -> list[tuple[str, bool, str | None, str]]:
+    """Probe ``health()`` for every **enabled** adapter, never raising.
+
+    A disabled adapter is not probed: it is not running, so there is nothing to reach, and probing
+    one would construct a client the deployment deliberately switched off. A probe failure is a
+    failed check **because the operator asked for a probe** -- that is the whole difference between
+    ``doctor`` and ``doctor --probe``.
+    """
+
+    from nyx.adapters.factory import build_adapter_registry
+
+    try:
+        registry = build_adapter_registry(settings)
+    except ValidationError as exc:
+        field = exc.errors()[0].get("loc", ("unknown",))[0]
+        return [
+            (
+                "adapter_probe",
+                False,
+                ErrorCode.INVALID_REQUEST.value,
+                f"an enabled adapter is registered but not constructible: {field} is not set",
+            )
+        ]
+    except Exception as exc:  # noqa: BLE001 - a probe reports, it does not crash
+        return [
+            (
+                "adapter_probe",
+                False,
+                ErrorCode.INTERNAL_ERROR.value,
+                f"could not build the adapter registry ({type(exc).__name__})",
+            )
+        ]
+
+    enabled = registry.enabled()
+    if not enabled:
+        return [("adapter_probe", True, None, "no adapter enabled (nothing to probe)")]
+
+    results: list[tuple[str, bool, str | None, str]] = []
+    for state in registry.states():
+        # `AdapterHealth.detail` is written by the adapters under the rule that it must never carry
+        # a credential; the registry adds the exception *type name* only when health() raises.
+        ok = state.state is AdapterState.OK
+        results.append(
+            (
+                f"adapter_probe:{state.adapter_id}",
+                ok,
+                None if ok else ErrorCode.ADAPTER_UNAVAILABLE.value,
+                f"{state.adapter_id} {state.state.value}: {state.detail}",
+            )
+        )
+    return results
+
+
+def _probe_checks(
+    settings: Settings,
+) -> list[tuple[str, bool, str | None, str]]:
+    """The ``--probe`` checks: the LLM endpoint, then the enabled adapters.
+
+    The whole probe runs under :func:`_quiet_logging`. A probe is the part of ``doctor`` that talks
+    to the network and to the database, so it is the part most likely to trigger a library's own
+    logging -- and a CLI whose stdout is one JSON document cannot afford a library writing in front
+    of it.
+    """
+
+    with _quiet_logging():
+        name, ok, code, message = _probe_llm_endpoint(settings)
+        results: list[tuple[str, bool, str | None, str]] = [(name, ok, code, message)]
+        results.extend(_probe_adapters(settings))
+    return results
+
+
 # --------------------------------------------------------------------------- audit
 
 
@@ -639,16 +896,97 @@ def _audit_report() -> VerificationReport:
         engine.dispose()
 
 
+def _checkpoint_path(value: Path | None) -> Path:
+    """The checkpoint file: an explicit ``--file``, else ``<data_dir>/audit-checkpoint.jsonl``.
+
+    A checkpoint stored next to the database is weaker than one copied elsewhere, because an actor
+    who can rewrite the database can likely rewrite a file in the same directory. The default is
+    the convenient one, not the strong one, and the docs say which is which.
+    """
+
+    return value if value is not None else Settings().data_dir / "audit-checkpoint.jsonl"
+
+
+@audit_app.command("checkpoint")
+def audit_checkpoint(
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    file: Path | None = typer.Option(
+        None,
+        "--file",
+        help="Checkpoint JSONL to append to. Defaults to <data_dir>/audit-checkpoint.jsonl.",
+    ),
+) -> None:
+    """Append an external checkpoint for the current audit chain head.
+
+    The chain detects mutation *within* the stored sequence. It cannot detect an actor who rewrites
+    the whole database and recomputes every hash. A checkpoint is an out-of-band anchor, so
+    ``nyx audit verify --against FILE`` can tell the difference.
+
+    The file is append-only JSONL, one record per checkpoint. Store it somewhere the database's
+    writer cannot reach: a checkpoint next to the database is a convenience, not a guarantee.
+
+    Exits 0 when a checkpoint was written, 1 otherwise. Never a traceback.
+    """
+
+    path = _checkpoint_path(file)
+    engine = create_engine_from_settings(Settings())
+    try:
+        record = write_checkpoint(create_session_factory(engine), path=path)
+    except CheckpointError as exc:
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.INVALID_REQUEST.value,
+                message=str(exc),
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.INTERNAL_ERROR.value,
+                message=f"could not write the audit checkpoint ({type(exc).__name__})",
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1) from exc
+    finally:
+        engine.dispose()
+
+    if json_output:
+        typer.echo(json.dumps(record.as_dict(), indent=2))
+    else:
+        typer.echo(
+            f"audit checkpoint written: sequence={record.sequence} "
+            f"entries={record.entries_checked} file={path}"
+        )
+
+
 @audit_app.command("verify")
 def audit_verify(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+    against: Path | None = typer.Option(
+        None,
+        "--against",
+        help=(
+            "Verify the stored chain against an external checkpoint FILE instead of only against "
+            "itself. A missing or unreadable file is a failure, not a pass."
+        ),
+    ),
 ) -> None:
     """Verify the audit hash chain and report its first divergence.
 
     Exits 0 on a clean chain and 1 on divergence. The chain detects accidental mutation within the
     stored sequence; it is not a defence against an attacker who rewrites the whole database and
-    recomputes every hash (SPEC §5.8).
+    recomputes every hash (SPEC §5.8). Pass ``--against`` to check the stored history against an
+    external checkpoint, which is the only way to detect that rewrite.
     """
+
+    if against is not None:
+        _audit_verify_against(against, json_output)
+        return
 
     try:
         report = _audit_report()
@@ -677,6 +1015,59 @@ def audit_verify(
         typer.echo(f"entry: {divergence.entry_id}", err=True)
 
     if not report.ok:
+        raise typer.Exit(code=1)
+
+
+def _audit_verify_against(path: Path, json_output: bool) -> None:
+    """Verify the stored chain against an external checkpoint file.
+
+    Separate from :func:`audit_verify` because the two report different questions and must not be
+    able to produce each other's answer: this one is about *is the stored history the history I
+    anchored*, the other about *is the stored history internally consistent*.
+    """
+
+    engine = create_engine_from_settings(Settings())
+    try:
+        comparison = compare_against_checkpoint(create_session_factory(engine), path=path)
+    except CheckpointError as exc:
+        # A checkpoint file that cannot be read, or that is malformed, is a failure of the *input
+        # to the check*, not a verdict about the chain. Report it with a stable code and exit 1.
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.INVALID_REQUEST.value,
+                message=str(exc),
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.INTERNAL_ERROR.value,
+                message=f"could not compare against the checkpoint ({type(exc).__name__})",
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1) from exc
+    finally:
+        engine.dispose()
+
+    if json_output:
+        typer.echo(json.dumps(comparison.as_dict(), indent=2))
+    elif comparison.ok:
+        typer.echo(
+            f"audit checkpoint verified: sequence={comparison.checkpoint_sequence} file={path}"
+        )
+    else:
+        typer.echo(
+            f"audit checkpoint mismatch: {comparison.reason} "
+            f"(checkpoint sequence {comparison.checkpoint_sequence})",
+            err=True,
+        )
+
+    if not comparison.ok:
         raise typer.Exit(code=1)
 
 
@@ -1367,6 +1758,7 @@ def _watch_cycle() -> tuple[WatchCycle, Engine]:
     # Keep the watcher's critic set identical to the API's and the CLI's: C-010 audits NYX's own
     # store, so it must be handed the same session factory the watcher just built.
     register_storage_backed(factory)
+    register_llm_critic(settings)
     registry = build_adapter_registry(settings)
     cycle = WatchCycle(
         session_factory=factory, settings=settings, inventory=_AdapterInventory(registry)
@@ -1391,6 +1783,65 @@ def _emit_outcomes(outcomes: list[CycleOutcome], json_output: bool) -> None:
             f"fetched={outcome.fetched} ingested={outcome.ingested} "
             f"duplicates={outcome.duplicates} findings={outcome.findings}"
         )
+
+
+@app.command("seed")
+def seed(
+    demo: str = typer.Argument("demo", help="Which demonstration to load. Only 'demo' exists."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Load the Ghost Factory demonstration into the store, idempotently.
+
+    The fixtures are read from ``examples/ghost-factory/`` and pushed through the ordinary
+    ingestion gateway, so redaction, validation, deduplication, and audit apply exactly as for
+    producer traffic. Re-running the seed is a no-op: the gateway's identity-based deduplication
+    turns a second run into duplicates, not new rows.
+
+    Exits 0 when every fixture loaded or was already present, 1 if any fixture was rejected.
+    """
+
+    if demo != "demo":
+        _emit_error(
+            StructuredError(
+                code=ErrorCode.INVALID_REQUEST.value,
+                message=f"unknown seed {demo!r}; the only demonstration is 'demo'",
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        outcome = seed_demo_from_settings()
+    except SeedError as exc:
+        _emit_error(
+            StructuredError(
+                code=exc.code,
+                message=str(exc),
+                request_id="cli",
+            ),
+            json_output,
+        )
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(outcome.as_dict(), indent=2))
+    elif outcome.ok:
+        typer.echo(
+            f"seeded {len(outcome.created)} fixture(s) created, "
+            f"{len(outcome.duplicates)} already present"
+        )
+    else:
+        for fixture, reason in outcome.rejected:
+            typer.echo(f"rejected {fixture}: {reason}", err=True)
+        typer.echo(
+            f"{len(outcome.created)} created, {len(outcome.duplicates)} duplicates, "
+            f"{len(outcome.rejected)} rejected",
+            err=True,
+        )
+
+    if not outcome.ok:
+        raise typer.Exit(code=1)
 
 
 @app.command("watch")

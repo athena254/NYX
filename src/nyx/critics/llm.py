@@ -1,9 +1,9 @@
-"""Failure-safe LLM critic (SPEC §13; Phase 4 slice 4.7).
+"""Failure-safe LLM critic (SPEC §13; Phase 4 interface, Phase 6 transport).
 
 This module implements the LLM critic *interface*, strict structured-output validation, and
-failure handling. It deliberately contains **no provider transport**: a real adapter is Phase 6
-work. The transport is an injected structural dependency, so the same critic is used by the
-tests here and by the Phase 6 adapter without a second interface.
+failure handling. The provider transport is injected: the synchronous implementation lives in
+:mod:`nyx.critics.llm_transport`, so the same critic is used by the tests and by the wired
+provider without a second interface.
 
 The trust rule is not negotiable: a model may **propose** a finding, but it never decides a
 disposition and never changes a lifecycle state. The critic returns a ``CriticResult`` to the
@@ -48,6 +48,9 @@ from nyx.ingestion.injection import build_model_prompt
 CRITIC_ID = "c011-llm-critic"
 CRITIC_VERSION = "1.0.0"
 
+#: Bumped whenever the prompt text changes, so a stored run says which template produced it.
+PROMPT_TEMPLATE_VERSION = "1.0.0"
+
 #: The transport enforces this; the critic does not run its own timer.
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
@@ -70,7 +73,7 @@ class LlmInvalidOutputError(LlmTransportError):
 
 @runtime_checkable
 class LlmTransport(Protocol):
-    """The provider seam. Phase 6 supplies a real implementation."""
+    """The provider seam. Phase 6's implementation is ``SyncCriticTransport``."""
 
     def complete(self, *, prompt: str, schema: dict[str, Any], timeout_seconds: float) -> str:
         """Return the model's raw response for ``prompt`` within ``timeout_seconds``."""
@@ -228,11 +231,21 @@ class LlmCritic:
         transport: LlmTransport | None,
         schema: dict[str, Any],
         clock: Callable[[], datetime] = utc_now,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        model_provider: str | None = None,
+        model_version: str | None = None,
+        log_prompts: bool = False,
     ) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be greater than zero")
         jsonschema.Draft202012Validator.check_schema(schema)
         self._transport = transport
         self._schema = schema
         self._clock = clock
+        self._timeout = timeout_seconds
+        self.model_provider = model_provider
+        self.model_version = model_version
+        self.log_prompts = log_prompts
 
     def run(self, context: CriticContext) -> CriticResult:
         """Assess ``context`` and return a typed result; never compose or mutate state."""
@@ -248,93 +261,91 @@ class LlmCritic:
             )
 
         prompt = self._build_prompt(context)
+
+        def fail(
+            status: CriticResultStatus,
+            rationale: str,
+            *,
+            response: str | None = None,
+        ) -> CriticResult:
+            return _failure_result(
+                context,
+                status=status,
+                rationale=rationale,
+                model_provider=self.model_provider,
+                model_version=self.model_version,
+                prompt_version=PROMPT_TEMPLATE_VERSION,
+                llm_io=self._llm_io(prompt, response),
+            )
+
         try:
             raw = self._transport.complete(
                 prompt=prompt,
                 schema=self._schema,
-                timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
+                timeout_seconds=self._timeout,
             )
         except LlmTimeoutError:
-            return _failure_result(
-                context,
-                status=CriticResultStatus.ERROR,
-                rationale=(
-                    "The LLM transport timed out. No finding was composed and no stored state "
-                    "was changed."
-                ),
+            return fail(
+                CriticResultStatus.ERROR,
+                "The LLM transport timed out. No finding was composed and no stored state "
+                "was changed.",
             )
         except LlmTransportError as exc:
-            return _failure_result(
-                context,
-                status=CriticResultStatus.ERROR,
-                rationale=(
-                    f"The LLM transport failed ({type(exc).__name__}). No finding was composed "
-                    "and no stored state was changed."
-                ),
+            return fail(
+                CriticResultStatus.ERROR,
+                f"The LLM transport failed ({type(exc).__name__}). No finding was composed "
+                "and no stored state was changed.",
             )
         except Exception as exc:  # noqa: BLE001 - a transport failure must never escape as state
-            return _failure_result(
-                context,
-                status=CriticResultStatus.ERROR,
-                rationale=(
-                    f"The LLM transport raised {type(exc).__name__}. No finding was composed and "
-                    "no stored state was changed."
-                ),
+            return fail(
+                CriticResultStatus.ERROR,
+                f"The LLM transport raised {type(exc).__name__}. No finding was composed and "
+                "no stored state was changed.",
             )
 
         try:
             payload = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
-            return _failure_result(
-                context,
-                status=CriticResultStatus.ERROR,
-                rationale=(
-                    "The LLM response was not valid JSON. No finding was composed and no stored "
-                    "state was changed."
-                ),
+            return fail(
+                CriticResultStatus.ERROR,
+                "The LLM response was not valid JSON. No finding was composed and no stored "
+                "state was changed.",
+                response=raw if isinstance(raw, str) else None,
             )
         if not isinstance(payload, dict):
-            return _failure_result(
-                context,
-                status=CriticResultStatus.ERROR,
-                rationale=(
-                    "The LLM response was not a JSON object. No finding was composed and no "
-                    "stored state was changed."
-                ),
+            return fail(
+                CriticResultStatus.ERROR,
+                "The LLM response was not a JSON object. No finding was composed and no "
+                "stored state was changed.",
+                response=raw,
             )
 
         try:
             jsonschema.Draft202012Validator(self._schema).validate(payload)
         except jsonschema.exceptions.ValidationError:
-            return _failure_result(
-                context,
-                status=CriticResultStatus.ERROR,
-                rationale=(
-                    "The LLM response did not conform to the required output schema. No finding "
-                    "was composed and no stored state was changed."
-                ),
+            return fail(
+                CriticResultStatus.ERROR,
+                "The LLM response did not conform to the required output schema. No finding "
+                "was composed and no stored state was changed.",
+                response=raw,
             )
 
         try:
             assessment = _LlmAssessment.model_validate(payload)
         except PydanticValidationError:
-            return _failure_result(
-                context,
-                status=CriticResultStatus.ERROR,
-                rationale=(
-                    "The LLM response could not be parsed into a critic assessment. No finding "
-                    "was composed and no stored state was changed."
-                ),
+            return fail(
+                CriticResultStatus.ERROR,
+                "The LLM response could not be parsed into a critic assessment. No finding "
+                "was composed and no stored state was changed.",
+                response=raw,
             )
 
         if assessment.refusal is not None:
-            return _failure_result(
-                context,
-                status=CriticResultStatus.INCONCLUSIVE,
-                rationale=(
-                    "The model declined to assess the evidence. A refusal is not evidence of "
-                    "misconduct, and no finding was composed."
-                ),
+            return fail(
+                CriticResultStatus.INCONCLUSIVE,
+                "The model declined to assess the evidence. A refusal is not evidence of "
+                "misconduct, and no finding was composed.",
+                response=raw,
             )
 
         known_ids = {item.id for item in context.linked_evidence}
@@ -343,26 +354,22 @@ class LlmCritic:
             {evidence_id for evidence_id in referenced if evidence_id not in known_ids}
         )
         if unknown_ids:
-            return _failure_result(
-                context,
-                status=CriticResultStatus.INCONCLUSIVE,
-                rationale=(
-                    "The model cited evidence IDs that are not linked to this context "
-                    f"({', '.join(unknown_ids)}). NYX cannot validate an assessment about evidence "
-                    "it has not seen, so no finding was composed."
-                ),
+            return fail(
+                CriticResultStatus.INCONCLUSIVE,
+                "The model cited evidence IDs that are not linked to this context "
+                f"({', '.join(unknown_ids)}). NYX cannot validate an assessment about evidence "
+                "it has not seen, so no finding was composed.",
+                response=raw,
             )
 
         status = _STATUS[assessment.result]
         if status is CriticResultStatus.FINDING:
             rejection = _finding_rejection(assessment, referenced, context)
             if rejection is not None:
-                return _failure_result(
-                    context,
-                    status=CriticResultStatus.ERROR,
-                    rationale=(
-                        f"{rejection} No finding was composed and no stored state was changed."
-                    ),
+                return fail(
+                    CriticResultStatus.ERROR,
+                    f"{rejection} No finding was composed and no stored state was changed.",
+                    response=raw,
                 )
 
         return CriticResult(
@@ -392,13 +399,46 @@ class LlmCritic:
             affected_system_ids=[context.scope.system_id],
             claim_ids=[context.linked_claim.id] if context.linked_claim else [],
             event_ids=[context.target_event.id],
+            model_provider=self.model_provider,
+            model_version=self.model_version,
+            prompt_version=PROMPT_TEMPLATE_VERSION,
+            resource_usage=self._usage(),
+            llm_io=self._llm_io(prompt, raw),
         )
+
+    def _usage(self) -> dict[str, float] | None:
+        """Return the transport's token accounting as optional run metadata.
+
+        Usage is best-effort: a transport that reports none yields ``None`` rather than zeros,
+        because "we did not measure" and "it cost nothing" are different statements.
+        """
+
+        usage = getattr(self._transport, "last_usage", None)
+        if not isinstance(usage, dict):
+            return None
+        measured = {
+            key: float(value)
+            for key, value in usage.items()
+            if isinstance(key, str) and isinstance(value, int) and not isinstance(value, bool)
+        }
+        return measured or None
+
+    def _llm_io(self, prompt: str, response: str | None) -> dict[str, Any] | None:
+        """Return the prompt/response pair only when prompt logging is explicitly enabled."""
+
+        if not self.log_prompts:
+            return None
+        payload: dict[str, Any] = {"prompt": prompt}
+        if response is not None:
+            payload["response"] = response
+        return payload
 
     def _build_prompt(self, context: CriticContext) -> str:
         question = "\n".join(
             (
                 f"Assess event {context.target_event.id} using only the evidence quoted below.",
                 f"Assessed as of {self._clock().isoformat()}.",
+                f"Prompt template version: {PROMPT_TEMPLATE_VERSION}.",
                 "Return JSON only, conforming exactly to this JSON Schema:",
                 json.dumps(self._schema, indent=2, sort_keys=True),
                 "Cite only evidence IDs that appear in the quoted evidence. Do not decide a "
@@ -430,7 +470,14 @@ def _finding_rejection(
 
 
 def _failure_result(
-    context: CriticContext, *, status: CriticResultStatus, rationale: str
+    context: CriticContext,
+    *,
+    status: CriticResultStatus,
+    rationale: str,
+    model_provider: str | None = None,
+    model_version: str | None = None,
+    prompt_version: str | None = None,
+    llm_io: dict[str, Any] | None = None,
 ) -> CriticResult:
     """Build an ``ERROR``/``INCONCLUSIVE`` result that composes no finding."""
 
@@ -450,4 +497,8 @@ def _failure_result(
             "as evidence that the underlying claim is true."
         ),
         requires_human_review=True,
+        model_provider=model_provider,
+        model_version=model_version,
+        prompt_version=prompt_version,
+        llm_io=llm_io,
     )

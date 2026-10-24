@@ -60,6 +60,7 @@ from nyx.ingestion.url_fetch import (
     is_http_url,
     validate_evidence_url,
 )
+from nyx.storage.repositories.audit import AuditRepository
 from nyx.storage.repositories.claims import ClaimRepository
 from nyx.storage.repositories.events import EventRepository
 from nyx.storage.repositories.evidence import EvidenceRepository
@@ -243,7 +244,15 @@ class IngestionGateway:
             status=manifest.status,
         )
         stored = _register_system(session, system, request_id=request_id)
-        status: IngestStatus = "created" if stored.id == system.id else "duplicate"
+        # ``register_system`` returns the existing row on a replay, so the caller cannot tell a
+        # replay from a fresh insert by comparing ids alone -- a manifest whose id already matches
+        # the stored row is exactly the replay case, and reporting it as "created" makes a second
+        # seed run look like a write. The newest audit entry is the authority: this call appended
+        # it, and a replay writes ``system.registration_replayed`` while an insert writes
+        # ``system.registered``.
+        newest = AuditRepository(session).last()
+        replayed = newest is not None and newest.action == "system.registration_replayed"
+        status: IngestStatus = "duplicate" if replayed else "created"
         return IngestResult(status=status, record_id=stored.id, record=stored)
 
     # -- events ------------------------------------------------------------------

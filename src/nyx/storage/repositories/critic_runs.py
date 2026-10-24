@@ -24,6 +24,8 @@ class CriticRunRepository:
             critic_version=run.critic_version,
             rule_version=run.rule_version,
             model_version=run.model_version,
+            model_provider=run.model_provider,
+            prompt_version=run.prompt_version,
             input_refs=list(run.input_refs),
             input_hashes=list(run.input_hashes),
             started_at=run.started_at,
@@ -33,6 +35,7 @@ class CriticRunRepository:
             tool_run_refs=list(run.tool_run_refs),
             resource_usage=run.resource_usage,
             failure_details=run.failure_details,
+            llm_io=run.llm_io,
             finding_id=run.finding_id,
         )
         self._session.add(row)
@@ -79,6 +82,8 @@ def _to_domain(row: CriticRunRow) -> CriticRun:
             "critic_version": row.critic_version,
             "rule_version": row.rule_version,
             "model_version": row.model_version,
+            "model_provider": row.model_provider,
+            "prompt_version": row.prompt_version,
             "input_refs": row.input_refs,
             "input_hashes": row.input_hashes,
             "started_at": as_utc(row.started_at),
@@ -88,6 +93,7 @@ def _to_domain(row: CriticRunRow) -> CriticRun:
             "tool_run_refs": row.tool_run_refs,
             "resource_usage": row.resource_usage,
             "failure_details": row.failure_details,
+            "llm_io": row.llm_io,
             "finding_id": row.finding_id,
         }
     )
