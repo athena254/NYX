@@ -9,9 +9,12 @@ chain therefore makes accidental edits, partial writes, and reordering visible.
 ```bash
 nyx audit verify              # human-readable report
 nyx audit verify --json       # one JSON document, for callers
+nyx audit checkpoint          # append an external anchor for the current head
+nyx audit verify --against FILE   # is the stored history the history I anchored?
 ```
 
-Exit codes: `0` on a clean chain, `1` on divergence. Never a traceback.
+Exit codes: `0` on a clean chain, `1` on divergence. Never a traceback. A checkpoint comparison that
+refuses -- no file, a chain shorter than the anchor, a malformed line -- also exits `1`.
 
 ## What is checked
 
@@ -20,6 +23,36 @@ Exit codes: `0` on a clean chain, `1` on divergence. Never a traceback.
 3. Each entry's `entry_hash` recomputes from its stored fields.
 
 The verifier walks the whole chain in pages and reports the **first** divergence, then stops.
+
+## External checkpoints (ADR 0012)
+
+The three checks above are all checks an actor who rewrites the whole database can satisfy: change
+every `reason`, recompute every `entry_hash`, and `nyx audit verify` reports a clean chain over
+records that are not the ones that were written.
+
+A checkpoint is the out-of-band anchor that closes that case:
+
+```bash
+nyx audit checkpoint                      # writes <data_dir>/audit-checkpoint.jsonl
+cp data/audit-checkpoint.jsonl /safe/place/
+# ...later, after any suspicion that the store was touched...
+nyx audit verify --against /safe/place/audit-checkpoint.jsonl
+```
+
+Each record is `{schema_version, sequence, head_hash, recorded_at, entries_checked}`, appended as
+one JSON line. `--against` compares the stored chain's head at that sequence against the anchored
+digest. A fully recomputed rewrite no longer matches, because the attacker would have had to forge
+the checkpoint too.
+
+**Store the checkpoint where the database's writer cannot reach it.** The default path is next to
+the database, which is a convenience: an actor who can rewrite the database can very likely rewrite a
+file in the same directory. The default is not the strong choice, and the strong choice is to copy
+the file elsewhere.
+
+**A refusal is not a pass.** An absent file, an empty file, a chain shorter than the checkpoint, a
+checkpoint ahead of the chain, and a malformed line are all explicit failures with a stable reason
+code (`no_checkpoint`, `checkpoint_truncated`, `checkpoint_sequence_beyond_chain`,
+`checkpoint_hash_mismatch`, `malformed_checkpoint`). The command reports red, never a silent success.
 
 ## Startup behaviour
 
