@@ -482,6 +482,31 @@
             "title": "Input Refs",
             "type": "array"
           },
+          "llm_io": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Io"
+          },
+          "model_provider": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider"
+          },
           "model_version": {
             "anyOf": [
               {
@@ -494,6 +519,19 @@
               }
             ],
             "title": "Model Version"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
           },
           "rationale": {
             "maxLength": 2000,

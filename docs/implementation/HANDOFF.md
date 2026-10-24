@@ -917,3 +917,47 @@ clean · `uv run ruff format --check .` 213 files · `uv run alembic upgrade hea
 database · `uv run nyx doctor` all checks passed · `scripts/acceptance_harness.py` ALL PASS / SKIP
 · **CI green** · **Security scanning green** · the independent dispute-loop probe returns 200 where
 it returned 500 before the fix.
+
+---
+
+## 24 October 2026 — caveat hardening closed, and the defects it exposed
+
+The owner-approved plan `docs/implementation/caveats-plan.md` (H1–H5) is delivered. Every caveat it
+named has a fix, and each fix is verified against the code rather than against the plan.
+
+**What landed**
+
+- **H1 licence** — Apache-2.0, recorded in `LICENSE`, `pyproject.toml`, README, and a
+  dependency-licensing section in `docs/operations.md`.
+- **H2a/H2b local-git objects** — `src/nyx/adapters/git_ci/objects.py` reads loose and packed
+  commit/tree objects (OFS and REF deltas) with `zlib` only. No new dependency, no subprocess under
+  `src/`. ADR 0011. Textual diffs remain out of scope and are still documented as such.
+- **H3 external audit checkpoints** — `nyx audit checkpoint` and `nyx audit verify --against FILE`
+  (ADR 0012). A fully recomputed rewrite no longer verifies. Every refusal is explicit.
+- **H4 `nyx doctor --probe`** — opt-in reachability for the LLM endpoint and enabled adapters.
+- **H5 seed demo + ADR 0010** — `nyx seed demo`, idempotent, and the missing ADR written.
+
+**Four defects found while landing them, and fixed**
+
+1. `display_effective_config` printed any URL setting verbatim. A password embedded in
+   `NYX_LLM_BASE_URL` was therefore echoed by `nyx doctor`. Redaction now covers every URL.
+2. `build_adapter_registry` constructed every adapter unconditionally, so `nyx doctor` and
+   `doctor --probe` failed on a deployment with no Git/CI repository configured. A disabled adapter
+   that cannot be built is now described, not raised.
+3. `httpx` logs every request at INFO, which put a line on stdout in front of the JSON a caller was
+   parsing. A CLI whose stdout is one JSON document now suppresses the HTTP client's and alembic's
+   loggers for the duration of a command.
+4. The seed exposed a replay mislabelled as `created`. A manifest whose id already matches the stored
+   row *is* the replay case, and the gateway reported it as a write.
+
+**The run before this one** (Phase 6, slices 6.1–6.5) is also in this tree: the `nyx.llm` provider
+seam, opt-in c011 registration, provenance and privacy-gated I/O persistence, model-path
+injection/provider-failure suites, and a fixture evaluation corpus and runner.
+
+**Still open**
+
+- **The live calibration run.** `evals/llm-critic/thresholds.json` is `pending` and says why: no
+  live provider run has been recorded, so no numbers are invented. This is the only remaining
+  Phase 6 item, and it needs the owner's go-ahead to run `scripts/eval_llm_critic.py --live`.
+- **Nothing here has been through CI.** The last green pipeline was on `78aa920`; all of the above
+  is uncommitted as of this writing.

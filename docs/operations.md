@@ -122,10 +122,24 @@ to loopback and a file-backed SQLite database. Relevant operational settings:
 | `NYX_RATE_LIMIT_REQUESTS` | `120` | Allowed requests per window, per caller. |
 | `NYX_RATE_LIMIT_WINDOW_SECONDS` | `60.0` | Sliding-window length. |
 | `NYX_RATE_LIMIT_EXEMPT_PATHS` | health, ready | Paths never rate limited. |
-| `NYX_LLM_ENABLED` | `false` | No model calls by default. |
+| `NYX_LLM_ENABLED` | `false` | No conversational model calls by default. |
+| `NYX_LLM_CRITIC_ENABLED` | `false` | Register the c011 model critic; requires `NYX_LLM_MODEL`. |
+| `NYX_LLM_LOG_PROMPTS` | `false` | Store the redacted prompt/response pair on each run; sensitive. |
+| `NYX_LLM_MODEL` / `NYX_LLM_PROTOCOL` / `NYX_LLM_BASE_URL` | unset / `openai` / dmr-X | Shared by the chat shell and the model critic. |
 
 The effective configuration is rendered with secret values redacted; do not add secrets to
 `NYX_*` values that are echoed by diagnostics.
+
+### Model critic
+
+`NYX_LLM_CRITIC_ENABLED=true` registers c011 alongside the deterministic pack; it is absent by
+default, and enabling it without `NYX_LLM_MODEL` refuses at startup. Every run persists the
+provider, model, prompt-template version, and token usage; the prompt and raw response are stored
+only when `NYX_LLM_LOG_PROMPTS=true`, and are redacted at the persistence boundary. A model may
+propose a finding, but it never records a disposition or changes a lifecycle state. Routing the
+prompt body to a provider is a deployment privacy decision; see `docs/privacy-and-retention.md`.
+The evaluated path and its current limits are in `docs/implementation/phase-6-evaluation.md`;
+no live provider calibration run has been recorded yet.
 
 ## Logs and request correlation
 
@@ -224,11 +238,25 @@ No secret is baked into the image. Credentials come from the environment at run 
 into a secrets store or a mounted file, never into the image or the build context. `.dockerignore`
 excludes `.env`, the virtual environment, the caches, and the local data directory.
 
+## Dependency licensing
+
+NYX is distributed under the Apache License 2.0. A new runtime dependency must be compatible with
+that licence; the SPEC §12 review records the candidate's licence, maturity, and maintenance
+before it is added, and the default answer is no new dependency. Current runtime dependencies are
+MIT, BSD-2-Clause, BSD-3-Clause, or Apache-2.0 (see `docs/implementation/phase-5-plan.md` §1).
+
 ## Deferred operational work
 
 - **Rate limiting is per-process**, as described above. A multi-process or multi-host deployment
   needs a shared store; there is no cluster-wide quota yet.
-- **External adapters are not implemented** (Phase 5).
+- **No metrics endpoint.** The metric list in SPEC §16 is not implemented; monitor logs and
+  `/ready` externally.
+- **External adapters are opt-in, not core.** The Git/CI and agent-transcript adapters exist
+  (Phase 5) but are constructed only when named in `NYX_ENABLED_ADAPTERS`; `nyx doctor` reports
+  registered-versus-enabled. Core NYX works with none enabled.
+- **The model critic's evaluation is fixture-only so far.** c011 is wired and its provenance is
+  persisted, but no live calibration run or numeric threshold exists yet; see
+  `docs/implementation/phase-6-evaluation.md`.
 - **Retention purge is opt-in and single-node.** `nyx retention purge` acts on the database it is
   pointed at; there is no scheduler. Run it from a host that can reach the database, and treat
   `--apply` as a change you would not make by accident.

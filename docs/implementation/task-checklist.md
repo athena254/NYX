@@ -24,7 +24,7 @@ its runtime behaviour is implemented or verified.
 | 13 | CLI and API contract completion. | `src/nyx/cli/*`, `src/nyx/api/*`, `docs/api.md`, `tests/contract/test_api_cli_consistency.py`, generated OpenAPI checked in | [x] Phase 1b/4/7: the full API surface, `docs/api.md`, and a drift-tested `docs/openapi.json` exist. Phase 4 added `tests/contract/test_api_cli_consistency.py`; Phase 7 added `tests/integration/test_cli_contract.py` (12 tests) and `docs/CLI-CONTRACT.md`. |
 | 14 | Security hardening and negative tests. | `src/nyx/api/auth.py`, `src/nyx/api/errors.py`, `tests/security/*`, `.github/workflows/*`, `docs/threat-model.md` updates | [x] Phase 4: authentication and capability enforcement (`src/nyx/auth/`), rate limiting, retention/redaction, prompt-injection/SSRF/path-traversal guards, `tests/security/` (5 files), CI workflows, and a Dockerfile. |
 | 15 | Git/CI adapter. | `src/nyx/adapters/git_ci/*`, `tests/contract/test_git_ci_adapter.py`, `docs/adr/0008-adapter-boundary-and-disablement.md` | [x] Phase 5 (slices 5.0–5.5, commits `c0bc402`–`b3d5240`): the `Adapter` protocol and registry, `GitHubCiClient`, `normalize.py`, `GitCiAdapter` + contract test, `LocalGitClient`, `FixtureCiClient` + the disablement test. ADR number corrected — 0007 is `0007-auth-modes.md` (Phase 4). |
-| 16 | Optional model critics and other adapters. | `src/nyx/critics/llm/*`, `src/nyx/adapters/*`, `tests/unit/test_llm_critic_failure.py`, evaluation corpus fixtures | [~] Phase 4 delivered the failure-safe LLM critic stub (`src/nyx/critics/llm.py`, `tests/unit/test_llm_critic_failure.py`). Phase 5 delivered the Git/CI adapter in `src/nyx/adapters/git_ci/`. The **live LLM provider adapter and evaluation corpus are Phase 6**; the tracing/evaluation/policy/provenance adapters are later phases. |
+| 16 | Optional model critics and other adapters. | `src/nyx/critics/llm/*`, `src/nyx/adapters/*`, `tests/unit/test_llm_critic_failure.py`, evaluation corpus fixtures | [x] Phase 4 delivered the failure-safe stub; Phase 5 delivered the Git/CI adapter. **Phase 6 (24 Oct 2026):** c011 is wired through `nyx.llm` + `SyncCriticTransport`, opt-in registration, provenance and privacy-gated I/O persistence, model-path injection/provider-failure suites, and a fixture evaluation corpus/runner. The **live calibration run and numeric thresholds are pending owner approval**; tracing/evaluation/policy/provenance adapters are later phases. |
 | 17 | End-to-end demo and operational documentation. | `examples/*`, `tests/e2e/test_ghost_factory_demo.py`, `docs/operations.md`, `docs/implementation/roadmap.md` status updates | [~] Phase 1b: Ghost Factory fixtures, `docs/operations.md`, `docs/api.md`, and roadmap updates exist. The end-to-end critic demonstration is Phase 2. |
 
 ## Phase 1a run note (19 October 2026)
@@ -62,3 +62,45 @@ The first slice must be end-to-end:
 
 Do not begin with an LLM critic or a dashboard. The Ghost Factory demonstration in SPEC §21 is the
 reference scenario for steps 8–11 and 17.
+
+## Caveat-hardening run note (24 October 2026)
+
+The owner-approved plan `docs/implementation/caveats-plan.md` closed every caveat it named. This is
+what landed, each verified against the code rather than the plan:
+
+- **H1 — licence.** `LICENSE` (Apache-2.0), `pyproject.toml` `license` + classifier, README
+  §License, and a dependency-licensing section in `docs/operations.md`.
+- **H2a/H2b — local-git objects.** `src/nyx/adapters/git_ci/objects.py` reads loose and packed
+  commit/tree objects, including OFS and REF deltas, with `zlib` only — no new dependency and no
+  subprocess under `src/`. `LocalGitClient` enriches each run from real objects and keeps
+  `conclusion=None`. ADR 0011. **Textual diffs are still not produced**; a path-change set against
+  the first parent is the maximum claim, and a shallow or pruned store degrades to the reflog.
+- **H3 — external audit checkpoints.** `nyx audit checkpoint` appends `{sequence, head_hash,
+  recorded_at, entries_checked}` to a JSONL file; `nyx audit verify --against FILE` compares the
+  stored chain against it. A fully recomputed rewrite no longer verifies. ADR 0012. A missing,
+  empty, short, ahead-of-chain, or malformed checkpoint is an explicit refusal, never a pass.
+- **H4 — `nyx doctor --probe`.** Opt-in. One bounded `GET` against the configured provider's
+  `/v1/models` and `health()` for every **enabled** adapter. A probe failure is a failed check,
+  because the operator asked. Without the flag, no external system is contacted.
+- **H5 — seed demo and the missing ADR.** `nyx seed demo` loads `examples/ghost-factory/` through
+  the ordinary ingestion gateway and is idempotent by identity. The fixtures are now the single
+  source of truth: the tests read the same directory, so a fixture cannot drift from what the seed
+  ingests. ADR 0010, referenced by the code and by commit `cdab828` but absent from `docs/adr/`, is
+  written.
+
+### Defects found while landing these, and fixed
+
+- `display_effective_config` echoed any URL setting verbatim, so a password embedded in
+  `NYX_LLM_BASE_URL` was printed by `nyx doctor`. Redaction now covers every URL, not just the
+  database URL.
+- `build_adapter_registry` constructed every adapter unconditionally, so `nyx doctor` failed on any
+  deployment with no Git/CI repository configured — the most common configuration there is. A
+  disabled-but-misconfigured adapter is now described rather than raised.
+- `httpx` logs every request at INFO, which put a log line on stdout in front of the JSON a caller
+  was parsing. The CLI now suppresses the HTTP client's and alembic's own loggers for the duration
+  of a command.
+- The seed exposed a replay mislabelled as `created`: a manifest whose id already matches the stored
+  row is exactly the replay case, and the gateway reported it as a write.
+
+Verified with `uv run pytest` (819 passed, 1 skipped), `uv run mypy` (146 files), `uv run ruff check .`,
+`uv run ruff format --check .` (249 files), and `uv run alembic upgrade head`.

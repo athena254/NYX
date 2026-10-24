@@ -2,7 +2,7 @@
 
 **Source:** `docs/SPEC.md` §19. Phase numbers and exit criteria are taken from that section; this file
 tracks status, deliverables, and the acceptance scenarios that gate each phase.
-**Last updated:** 21 October 2026.
+**Last updated:** 24 October 2026.
 
 Status values: `not started`, `in progress`, `blocked`, `done`.
 
@@ -16,7 +16,7 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | 3 | Disputes and verification | done | 10, 11, 22, 23 |
 | 4 | Security and operational hardening | done | 13, 14, 15, 16, 17, 18, 19, 20, 21 |
 | 5 | Integrations | done | No numbered scenarios; adapter contract tests and independent disablement |
-| 6 | Optional model critics and calibration | not started | 19 (re-validated with model critics) plus evaluation-corpus thresholds |
+| 6 | Optional model critics and calibration | in progress (fixture path done; live calibration pending) | 19 (model path), 15 (model path), evaluation corpus; numeric thresholds pending |
 | 7 | Conversational interface | done | No numbered scenarios; the chat cannot create a finding or record a disposition |
 
 Scenarios 14 and 18 are first gated in Phase 1 and re-validated in Phase 4. Scenario 19 is first
@@ -392,7 +392,7 @@ interface, or granting an adapter more authority than its declared capability.
 | 5.1 | `f652fcb` | `GitHubCiClient`, `GitCiConfig` — bounded GET, secret-safe, private-target guard |
 | 5.2 | `f652fcb` | `normalize.py` — GitHub JSON to `EventInput` / `EvidenceInput` |
 | 5.3 | `524afed` | `GitCiAdapter` + the contract test (25 cases over a real socket) |
-| 5.4 | `524afed` | `LocalGitClient` — same interface, reads `.git` with `pathlib`, no subprocess |
+| 5.4 | `524afed` | `LocalGitClient` — same interface; `.git` read with `pathlib`; packed/loose objects added by ADR 0011 (no subprocess) |
 | 5.5 | `b3d5240` | `FixtureCiClient` + the disablement test (the phase's exit criterion) |
 
 ### Defects found while landing the phase
@@ -414,8 +414,9 @@ boundary — and both were caught by driving the output through the real ingesti
 
 ### Honest limitations, recorded rather than hidden
 
-- **The local-git provider reads refs and the reflog, not git objects.** It cannot read commit
-  contents, file lists, or diffs. Stated in the module docstring and in ADR 0008.
+- **The local-git provider now reads loose and packed commit/tree objects** (ADR 0011), so a run
+  carries the real message, author, parents, and changed paths. **Textual diffs are still not
+  produced**, and a shallow/pruned store degrades to the reflog for that commit.
 - **`EvidenceItem` now accepts unlinked evidence with a `relevance_note`.** This is an explicit
   SPEC §5.4 deviation, recorded in ADR 0008, and reversible.
 - **OpenTelemetry and the evaluation/policy/provenance adapters are not in Phase 5.** They are
@@ -428,27 +429,46 @@ boundary — and both were caught by driving the output through the real ingesti
 
 ## Phase 6 — Optional model critics and calibration
 
-**Status:** not started.
+**Status:** in progress (24 October 2026). Slices 6.1–6.5 are delivered: the provider seam,
+opt-in wiring and provenance persistence, model-path injection/failure tests, the fixture
+evaluation corpus and runner, and docs. **The live calibration run and numeric thresholds are
+pending the owner's go-ahead**, so the phase exit criterion is not yet claimed as met.
 
 **Deliverable:** a pluggable LLM critic behind the same interface as deterministic critics, with
 documented calibration and failure behaviour.
 
 **Work items**
 
-- LLM critic adapter with externally configured provider/model, timeout, and no-LLM mode.
-- Strict structured-output validation and evidence-ID validation.
-- Prompt-injection tests against model critics.
-- Provider-failure, timeout, refusal, and invalid-output handling.
-- Evaluation corpus from synthetic and consented examples.
-- Comparison with the deterministic baseline: false positives, false negatives, unsupported
-  assertions, latency, and cost.
-- Independent review and versioned scoring rules.
+- [x] Provider seam: `src/nyx/llm/provider.py`, shared by the async chat client and the sync
+      critic transport; `src/nyx/conversational/llm.py` remains a re-export shim.
+- [x] `SyncCriticTransport` over `httpx.Client`, with one deadline shared by critic and provider
+      and a parity contract test against the async client over a real socket.
+- [x] Opt-in registration: c011 is registered only when `NYX_LLM_CRITIC_ENABLED=true`, and
+      enabling it without `NYX_LLM_MODEL` refuses at startup. Wired in the API factory and CLI.
+- [x] Strict structured-output validation, evidence-ID validation, refusal handling, and
+      model-confidence rejection, exercised over the real transport.
+- [x] Provenance persistence: provider, model, prompt-template version, token usage, and a
+      nullable `llm_io` written only when `NYX_LLM_LOG_PROMPTS=true` and redacted before storage.
+- [x] Prompt-injection tests on the model path (`tests/security/test_llm_critic_injection.py`).
+- [x] Provider-failure tests over a local socket
+      (`tests/integration/test_llm_critic_provider_failures.py`).
+- [x] Evaluation corpus, runner, and recorded fixture-mode results
+      (`evals/llm-critic/`, `scripts/eval_llm_critic.py`,
+      `docs/implementation/phase-6-evaluation.md`).
+- [ ] Live calibration run against an owner-approved provider, then numeric thresholds replacing
+      the `pending` file. This is the only remaining Phase 6 item.
+- [x] Caveat hardening (owner-approved plan, `docs/implementation/caveats-plan.md`): Apache-2.0
+      licence (H1); local-git loose **and** packed object reading with the standard library (H2a,
+      H2b, ADR 0011); external audit checkpoints (H3, ADR 0012); opt-in `nyx doctor --probe` (H4);
+      `nyx seed demo` and the missing ADR 0010 (H5).
 
 **Exit criteria (SPEC §19):** schema validation, evidence-ID validation, prompt-injection tests,
-provider-failure tests, and documented evaluation results pass.
+provider-failure tests, and documented evaluation results pass. The first four are met by tests;
+the evaluation is documented but the live run is pending, so the criterion is not claimed.
 
-**Acceptance scenarios:** 19 (re-validated with model critics), plus the evaluation-corpus thresholds
-defined in this phase. Scenario 15 is re-validated against model critics.
+**Acceptance scenarios:** 19 (model path), 15 (model path), plus the evaluation-corpus thresholds
+defined in this phase. The corpus has eight synthetic cases across all three outcome families;
+fixture-mode scores are a plumbing check, not a model-quality claim.
 
 **Explicit non-goals for this phase:** treating model output as deterministic verification, using
 model confidence as calibrated probability without separate calibration, or automatic enforcement.
@@ -457,7 +477,8 @@ model confidence as calibrated probability without separate calibration, or auto
 
 ## Phase 7 — Conversational interface
 
-**Status:** done (21 October 2026). See `docs/implementation/conversational-interface-plan.md`.
+**Status:** done (21 October 2026; the missing ADR 0010 was written 24 October 2026). See
+`docs/implementation/conversational-interface-plan.md`.
 Slices 6.1, 6.2, 6.3, 6.4 (CLI chat and Telegram bot), and 6.6 are done.
 
 **Deliverable:** a conversational front-end for NYX, living in the NYX repository as a separate

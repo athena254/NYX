@@ -64,11 +64,11 @@ unimplemented.
 | 12 | Invalid lifecycle transitions are rejected without changing stored state. | 2 | `tests/unit/test_finding_lifecycle.py` | [x] |
 | 13 | A caller cannot read restricted evidence without the required capability. | 4 | `tests/security/test_evidence_access.py` | [x] Phase 4: 7 tests, including 401 with no credential and 403 when the body claims another identity. |
 | 14 | Secrets in incoming payloads are redacted before persistence and model processing. | 1 (re-validated 4) | `tests/unit/test_redaction.py`, `tests/integration/test_redaction_persistence.py` | [x] |
-| 15 | Prompt injection embedded in evidence cannot grant tool access or change trusted policy. | 4 (re-validated 6) | `tests/security/test_prompt_injection.py` | [x] Phase 4: the fence cannot be closed from inside, and policy resolution reads only from the registered rule set. |
+| 15 | Prompt injection embedded in evidence cannot grant tool access or change trusted policy. | 4 (re-validated 6) | `tests/security/test_prompt_injection.py`, `tests/security/test_llm_critic_injection.py` | [x] Phase 4: the fence cannot be closed from inside, and policy resolution reads only from the registered rule set. Phase 6: the same payload through c011 stays fenced; smuggled lifecycle fields and model confidence are rejected by the schema, c011 exposes no tool surface, and unlinked evidence IDs are `INCONCLUSIVE`. |
 | 16 | A verification tool cannot execute an arbitrary command supplied by an untrusted event. | 4 | `tests/security/test_verification_allowlist.py` | [x] Phase 4: an unregistered check is refused before anything runs, and a `src/` grep guard fails the build if `subprocess`/`os.system`/`shell=True`/`eval(`/`exec(` appears. |
 | 17 | Audit history detects accidental record mutation within the implemented threat model. | 4 | `tests/integration/test_audit_integrity.py` | [x] Phase 4: 10 tests mutating real rows; the non-claim (a full-database rewrite) is asserted as wording, not as coverage. |
 | 18 | Database/provider outage produces a safe failure and does not report successful ingestion. | 1 (re-validated 4) | `tests/integration/test_readiness_failure.py` | [x] |
-| 19 | LLM timeout or invalid structured output does not corrupt finding state. | 4 (stub) / 6 (live adapter) | `tests/unit/test_llm_critic_failure.py` | [x] Phase 4 stub path: 8 tests asserting on the `findings` and `critic_runs` tables. Live adapter remains Phase 6. |
+| 19 | LLM timeout or invalid structured output does not corrupt finding state. | 4 (stub) / 6 (live adapter) | `tests/unit/test_llm_critic_failure.py`, `tests/integration/test_llm_critic_provider_failures.py`, `tests/integration/test_llm_critic_run_persistence.py` | [x] Phase 4 stub path: 8 tests asserting on the `findings` and `critic_runs` tables. Phase 6: the same assertions over `SyncCriticTransport` and a local socket — HTTP error, invalid JSON, empty content, timeout, refusal, unknown evidence ID, and the happy path with persisted provenance and usage. |
 | 20 | `nyx doctor`, health, and readiness correctly report dependency state without leaking secrets. | 4 | `tests/integration/test_health_and_doctor.py` | [x] Phase 4: a stopped database is a 503 with no traceback; doctor prints `***redacted***` and no secret value or prefix. |
 | 21 | API and CLI expose consistent status and error semantics. | 4 | `tests/contract/test_api_cli_consistency.py` | [x] Phase 4: the families both surfaces expose agree; auth/capability/rate-limit are API-only by design. |
 | 22 | A policy change records the new version and who changed it. | 3 | `tests/integration/test_policy_versioning.py` | [x] Phase 3: a policy change records the version, actor, and reason. |
@@ -84,7 +84,7 @@ unimplemented.
 | 3 — Disputes and verification | 10, 11, 22, 23 (all passing) |
 | 4 — Security and operational hardening | 13, 14, 15, 16, 17, 18, 19, 20, 21 (all passing) |
 | 5 — Integrations | No numbered scenarios; adapter contract tests and independent disablement (all passing) |
-| 6 — Optional model critics and calibration | 19 (live model path), 15 (model path), calibration thresholds |
+| 6 — Optional model critics and calibration | 19 and 15 on the model path (passing); evaluation corpus recorded in fixture mode; live calibration thresholds pending |
 
 ## Evidence required to check a box
 

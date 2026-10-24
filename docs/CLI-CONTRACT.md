@@ -59,7 +59,7 @@ collections:
 
 ## Commands
 
-All 19 commands, with the arguments that are required:
+All 25 commands, with the arguments that are required:
 
 | Command | Required input |
 | --- | --- |
@@ -78,6 +78,12 @@ All 19 commands, with the arguments that are required:
 | `nyx finding dispose` | finding id, `--outcome`, `--reason` |
 | `nyx finding history` | finding id |
 | `nyx doctor` | — |
+| `nyx seed demo` | — |
+| `nyx audit verify` | — |
+| `nyx audit checkpoint` | — |
+| `nyx watch` | — (long-running; Ctrl-C to stop) |
+| `nyx retention redact` | `--dry-run` recommended |
+| `nyx retention purge` | `--apply` to write |
 | `nyx chat ask` | question |
 | `nyx chat shell` | — (interactive) |
 | `nyx telegram check` | — |
@@ -99,6 +105,22 @@ but no token, or no `NYX_TELEGRAM_ALLOWED_USER_IDS`, it exits `1` naming the mis
 bot without an allowlist is a bot that answers anyone who finds it, so the allowlist is required
 rather than defaulted. `nyx telegram check` is the dry run: it calls `getMe` and reports the bot's
 identity and its effective, secret-safe configuration without sending anything to a user.
+
+**`nyx doctor --probe` is opt-in, and its failures are real failures.** Without `--probe`, doctor
+checks configuration, the database, migrations, writable paths, and OpenAPI freshness. With it, two
+more checks run: one bounded `GET` against the configured LLM endpoint, and `health()` for every
+**enabled** adapter. A third party being down is then a failed check with a non-zero exit, because
+the operator asked. Without the flag, nothing external is contacted and a dead dependency cannot
+fail the command.
+
+**`nyx audit verify --against FILE` refuses rather than passing.** A missing file, an empty file, a
+chain shorter than the checkpoint, a checkpoint ahead of the chain, and a malformed line are all
+explicit failures with a stable reason. A checker that treats "there is no checkpoint" as "verified"
+would manufacture the one guarantee it exists to provide. See `docs/audit-verification.md`.
+
+**`nyx seed demo` is idempotent.** It loads the Ghost Factory fixtures through the ordinary ingestion
+gateway, so re-running it produces duplicates rather than new rows. The audit trail grows on a replay
+by design; the store's records do not change.
 
 ## A note on `--json` and stderr
 
