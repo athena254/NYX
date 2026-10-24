@@ -58,9 +58,10 @@ Three constraints shape the decision:
   `tests/security/test_verification_allowlist.py` fails the build on `subprocess`, `os.system`,
   `shell=True`, `eval(`, or `exec(` anywhere in `src/`. A reviewed allowlist entry for a shell-out
   is a weaker guarantee than not having the shell-out, so the provider reads `.git/HEAD`,
-  `.git/refs/**`, `.git/packed-refs`, and `.git/logs/HEAD` directly. **Documented limitation:** it
-  reads refs and the reflog, not git objects, so it cannot read commit contents, file lists, or
-  diffs.
+  `.git/refs/**`, `.git/packed-refs`, and `.git/logs/HEAD` directly. The original limitation —
+  refs and reflog only, no commit contents, file lists, or diffs — was lifted on 24 October 2026
+  by ADR 0011, which adds loose and packed object reading with the standard library and still
+  starts no process. Textual diffs remain out of scope.
 
 ## Unlinked evidence (SPEC §5.4 deviation)
 

@@ -13,11 +13,14 @@ and no network is touched — which is why this slice needs no allowlist entry i
 ``tests/security/test_verification_allowlist.py``: the gate that forbids arbitrary command
 execution anywhere under ``src/`` is satisfied here by construction, not by review.
 
-> **Documented limitation.** This provider reads **refs and the reflog, not git objects**. It
-> therefore cannot read commit contents, file lists, or diffs: a reflog line carries a commit's
-> sha, author, timestamp and subject line, and nothing else. An operator who needs the contents
-> of a commit, the files it touched, or a diff has the GitHub provider (slice 5.1). This is
-> stated here rather than left for a user to discover, and in ``docs/adr/0008``.
+> **Object reading.** This provider reads the refs and reflog, and, when the object store is
+> readable, the **commit and tree objects** those refs point at (loose and packed, including
+> delta-encoded packs; see :mod:`nyx.adapters.git_ci.objects`). A run therefore carries the real
+> commit message, author, parents, committer time, and the set of paths changed against the first
+> parent. **Textual diffs are not produced**: a path change set is the maximum claim. If an
+> object is missing or corrupt (a shallow clone, a pruned store), that commit degrades to the
+> reflog's own words rather than inventing contents; the object reader itself fails with a coded
+> error, and its tests exercise that path directly.
 
 **What a run dict is.** A local repository has no external run id, so the commit *is* the
 external object: ``id`` and ``head_sha`` are the commit sha, and the reflog's subject line is the
@@ -61,6 +64,7 @@ from nyx.adapters.git_ci.github_client import (
     CODE_UNAVAILABLE,
     GitCiError,
 )
+from nyx.adapters.git_ci.objects import Commit, ObjectReader
 from nyx.ingestion.paths import PathTraversalError, resolve_within
 
 #: The sha a ref has never pointed at: the old half of the first line of every reflog.
@@ -121,9 +125,23 @@ def _subject(message: str) -> str:
     text = _COMMIT_PREFIX.sub("", message, count=1).strip()
     if not text:
         text = message.strip()
-    if len(text) > _MAX_NAME:
-        text = text[: _MAX_NAME - 3] + "..."
+    return _truncate(text, _MAX_NAME)
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Bound one line of untrusted text; git permits arbitrarily long subjects."""
+
+    text = text.strip()
+    if len(text) > limit:
+        text = text[: limit - 3] + "..."
     return text
+
+
+def _commit_subject(message: str) -> str:
+    """The first line of a real commit message, bounded for the run's ``name``."""
+
+    first = message.strip().splitlines()
+    return _truncate(first[0], _MAX_NAME) if first else ""
 
 
 class LocalGitClient:
@@ -185,24 +203,54 @@ class LocalGitClient:
 
     def _fetch(self, ref: str, *, kind: str) -> list[dict[str, Any]]:
         resolved = self._resolve_ref(ref)
-        runs = [self._run(commit, kind=kind) for commit in self._commits(resolved)]
+        reader = self._object_reader()
+        runs = [self._run(commit, kind=kind, reader=reader) for commit in self._commits(resolved)]
         limit = self._config.max_runs_per_fetch
         self._last_truncated = max(0, len(runs) - limit)
         return runs[:limit]
 
-    def _run(self, commit: _ReflogEntry, *, kind: str) -> dict[str, Any]:
+    def _object_reader(self) -> ObjectReader | None:
+        """An object reader for this repository, or ``None`` when the store is unreadable.
+
+        A missing ``.git`` is already a ``not_found`` from ``_resolve_ref``; this is only the
+        shallow/pruned/corrupt case, where the reflog is still usable evidence.
+        """
+
+        try:
+            return ObjectReader(self._require_git_dir())
+        except GitCiError:
+            return None
+
+    def _run(
+        self, commit: _ReflogEntry, *, kind: str, reader: ObjectReader | None = None
+    ) -> dict[str, Any]:
         started = commit.occurred_at.isoformat()
+        name = _subject(commit.message)
+        author = commit.author
+        enriched: dict[str, Any] = {}
+        info = self._commit(reader, commit.new_sha)
+        if info is not None:
+            started = info.committed_at.isoformat()
+            name = _commit_subject(info.message) or name
+            author = info.author_name
+            enriched = {
+                "message": _truncate(info.message, 4000),
+                "parents": list(info.parents),
+                "files": self._changed_files(reader, info.sha),
+            }
         run: dict[str, Any] = {
             # The commit is the external object: its sha is the id, so the producer key is
             # stable across refetches and two commits can never collide.
             "id": commit.new_sha,
             "head_sha": commit.new_sha,
-            "name": _subject(commit.message),
+            "name": name,
+            "author": author,
             "status": "completed",
             # A commit is not a test result. No conclusion is invented.
             "conclusion": None,
             "html_url": self._file_url(commit.new_sha),
         }
+        run.update(enriched)
         if kind == "check":
             run["started_at"] = started
             run["completed_at"] = started
@@ -210,6 +258,26 @@ class LocalGitClient:
             run["run_started_at"] = started
             run["updated_at"] = started
         return run
+
+    @staticmethod
+    def _commit(reader: ObjectReader | None, sha: str) -> Commit | None:
+        """The parsed commit, or ``None`` when this repository cannot supply its objects."""
+
+        if reader is None:
+            return None
+        try:
+            return reader.commit(sha)
+        except GitCiError:
+            return None
+
+    @staticmethod
+    def _changed_files(reader: ObjectReader | None, sha: str) -> list[str]:
+        if reader is None:
+            return []
+        try:
+            return reader.changed_paths(sha)
+        except GitCiError:
+            return []
 
     def _file_url(self, sha: str) -> str:
         """A plausible ``file://`` reference for a local commit, stored as ``source_ref``."""
