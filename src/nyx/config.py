@@ -144,6 +144,17 @@ class Settings(BaseSettings):
     # a watcher with no target is silently watching nothing.
     watch_ref: str = "main"
 
+    # --- ADR 0010: agent transcript adapters -------------------------------------
+    # An agent-transcript adapter observes an agent's own conversation log (Hermes, OpenCode,
+    # ...). The store is a local SQLite database; the path is the only configuration these
+    # adapters need. `agent_transcript_db` is NOT a secret -- a path cannot carry a credential,
+    # and an adapter that could hold one would be an adapter that could leak one. When unset,
+    # each adapter auto-detects its own store. `agent_transcript_system_id` is the
+    # `source_system_id` stamped on every emitted input: a deterministic identity, never an
+    # operator's, so an unattended observer is not mistaken for a person.
+    agent_transcript_db: str | None = None
+    agent_transcript_system_id: str = "agent"
+
     @model_validator(mode="after")
     def _check_safe_auth_boundary(self) -> Self:
         if self.host not in _LOOPBACK_HOSTS and self.auth_mode == "none":

@@ -11,6 +11,8 @@ applies ``enabled_adapters`` as the deployment filter. Callers decide which sett
 
 from __future__ import annotations
 
+from nyx.adapters.agent_transcript.config import AgentTranscriptConfig
+from nyx.adapters.agent_transcript.hermes import HermesAdapter
 from nyx.adapters.base import AdapterRegistry
 from nyx.adapters.git_ci.adapter import GitCiAdapter
 from nyx.adapters.git_ci.config import GitCiConfig
@@ -34,4 +36,11 @@ def build_adapter_registry(settings: Settings | None = None) -> AdapterRegistry:
     enabled = set(effective.enabled_adapters)
     registry = AdapterRegistry(is_enabled=lambda adapter_id: adapter_id in enabled)
     registry.register(GitCiAdapter(GitCiConfig.from_settings(effective)))
+    # Each agent-transcript adapter shares one config shape but its own auto-detect store, so the
+    # config is built per adapter from that adapter's default path. Adding an agent is one import
+    # and one register() call here -- the shared base does the rest (ADR 0010).
+    hermes_config = AgentTranscriptConfig.from_settings(
+        effective, default_db=HermesAdapter.default_db_path()
+    )
+    registry.register(HermesAdapter(hermes_config))
     return registry
