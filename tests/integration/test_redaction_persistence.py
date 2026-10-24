@@ -12,14 +12,14 @@ from nyx.storage.db import SessionFactory, session_scope
 from nyx.storage.repositories.audit import AuditRepository
 from nyx.storage.repositories.events import EventRepository
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+FIXTURES = Path(__file__).resolve().parents[2] / "examples" / "ghost-factory"
 
 _BEARER = "Bearer abcdefghijklmnop123456"
 _AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
 
 
 def _event_with_secrets() -> dict[str, Any]:
-    document = json.loads((FIXTURES / "event_completion_claim.json").read_text(encoding="utf-8"))
+    document = json.loads((FIXTURES / "event-completion-claim.json").read_text(encoding="utf-8"))
     document.pop("id", None)
     document["producer_event_id"] = "redaction-1"
     document["payload"] = {
@@ -72,7 +72,7 @@ def test_audit_records_the_redaction_rationale(
 def test_clean_payload_audit_says_no_redaction(
     service: IngestionService, session_factory: SessionFactory
 ) -> None:
-    document = json.loads((FIXTURES / "event_completion_claim.json").read_text(encoding="utf-8"))
+    document = json.loads((FIXTURES / "event-completion-claim.json").read_text(encoding="utf-8"))
     document.pop("id", None)
     document["producer_event_id"] = "redaction-clean"
 

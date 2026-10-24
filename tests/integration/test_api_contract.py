@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+FIXTURES = Path(__file__).resolve().parents[2] / "examples" / "ghost-factory"
 API = "/api/v1"
 
 
@@ -18,14 +18,14 @@ def _fixture(name: str) -> dict[str, Any]:
 
 
 def _event(producer_event_id: str) -> dict[str, Any]:
-    document = _fixture("event_completion_claim.json")
+    document = _fixture("event-completion-claim.json")
     document.pop("id", None)
     document["producer_event_id"] = producer_event_id
     return document
 
 
 def test_register_and_list_systems(client: TestClient) -> None:
-    created = client.post(f"{API}/systems", json=_fixture("system_manifest.json"))
+    created = client.post(f"{API}/systems", json=_fixture("system-manifest.json"))
     assert created.status_code == 201
     body = created.json()
     assert body["id"] == "sys_ghost_factory_demo"
@@ -46,7 +46,7 @@ def test_list_systems_rejects_an_invalid_cursor(client: TestClient) -> None:
 
 
 def test_single_event_ingest_and_replay(client: TestClient) -> None:
-    registered = client.post(f"{API}/systems", json=_fixture("system_manifest.json"))
+    registered = client.post(f"{API}/systems", json=_fixture("system-manifest.json"))
     assert registered.status_code == 201
 
     document = _event("api-event-1")
@@ -98,7 +98,7 @@ def test_batch_is_per_item(client: TestClient) -> None:
 
 
 def test_claim_and_evidence_ingest(client: TestClient) -> None:
-    claim = client.post(f"{API}/claims", json=_fixture("claim_completion_abc123.json"))
+    claim = client.post(f"{API}/claims", json=_fixture("claim-completion-abc123.json"))
     assert claim.status_code == 201
     assert claim.json()["id"] == "clm_ghost_0001"
 
@@ -106,7 +106,7 @@ def test_claim_and_evidence_ingest(client: TestClient) -> None:
     assert fetched_claim.status_code == 200
     assert fetched_claim.json()["statement"].startswith("All required tests pass")
 
-    evidence = client.post(f"{API}/evidence", json=_fixture("evidence_test_def456.json"))
+    evidence = client.post(f"{API}/evidence", json=_fixture("evidence-test-def456.json"))
     assert evidence.status_code == 201
     assert evidence.json()["id"] == "ev_ghost_def456"
 

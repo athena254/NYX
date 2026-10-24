@@ -38,7 +38,7 @@ from typer.testing import CliRunner
 from nyx.cli.main import app
 from nyx.domain.enums import DispositionOutcome
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+FIXTURES = Path(__file__).resolve().parents[2] / "examples" / "ghost-factory"
 
 
 # --------------------------------------------------------------------------- introspection
@@ -157,10 +157,10 @@ def test_json_output_is_one_document_with_no_surrounding_prose(
 
     # Seed one of every record type so list/show commands have something to read.
     for args in (
-        ["system", "register", str(FIXTURES / "system_manifest.json")],
-        ["ingest", "event", str(FIXTURES / "event_completion_claim.json")],
-        ["claim", "add", str(FIXTURES / "claim_completion_abc123.json")],
-        ["evidence", "add", str(FIXTURES / "evidence_test_def456.json")],
+        ["system", "register", str(FIXTURES / "system-manifest.json")],
+        ["ingest", "event", str(FIXTURES / "event-completion-claim.json")],
+        ["claim", "add", str(FIXTURES / "claim-completion-abc123.json")],
+        ["evidence", "add", str(FIXTURES / "evidence-test-def456.json")],
     ):
         result = runner.invoke(app, args, env=env)
         assert result.exit_code == 0, result.output
@@ -222,7 +222,7 @@ def _first_event_id(runner: CliRunner, env: dict[str, str]) -> str:
 
     result = runner.invoke(
         app,
-        ["ingest", "event", str(FIXTURES / "event_completion_claim.json"), "--json"],
+        ["ingest", "event", str(FIXTURES / "event-completion-claim.json"), "--json"],
         env=env,
     )
     assert result.exit_code == 0, result.output
@@ -336,10 +336,10 @@ def _required_arguments(name: str, required: list[str]) -> list[str] | None:
     """
 
     supplied: dict[str, str] = {
-        "manifest": str(FIXTURES / "system_manifest.json"),
-        "source": str(FIXTURES / "event_completion_claim.json"),
+        "manifest": str(FIXTURES / "system-manifest.json"),
+        "source": str(FIXTURES / "event-completion-claim.json"),
         "finding_id": "fnd_does_not_exist",
-        "event": str(FIXTURES / "event_completion_claim.json"),
+        "event": str(FIXTURES / "event-completion-claim.json"),
     }
     args = name.split()
     for argument in required:

@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 
 from nyx.cli.main import app
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+FIXTURES = Path(__file__).resolve().parents[2] / "examples" / "ghost-factory"
 
 
 def _env(tmp_path: Path, database: Path) -> dict[str, str]:
@@ -38,7 +38,7 @@ def test_cli_registers_lists_and_ingests(tmp_path: Path, database: Path) -> None
     env = _env(tmp_path, database)
 
     registered = runner.invoke(
-        app, ["system", "register", str(FIXTURES / "system_manifest.json")], env=env
+        app, ["system", "register", str(FIXTURES / "system-manifest.json")], env=env
     )
     assert registered.exit_code == 0, registered.output
     assert "created sys_ghost_factory_demo" in registered.output
@@ -47,7 +47,7 @@ def test_cli_registers_lists_and_ingests(tmp_path: Path, database: Path) -> None
     assert listed.exit_code == 0, listed.output
     assert json.loads(listed.output)[0]["id"] == "sys_ghost_factory_demo"
 
-    event_path = FIXTURES / "event_completion_claim.json"
+    event_path = FIXTURES / "event-completion-claim.json"
     ingested = runner.invoke(app, ["ingest", "event", str(event_path)], env=env)
     assert ingested.exit_code == 0, ingested.output
     assert "created" in ingested.output
@@ -57,12 +57,12 @@ def test_cli_registers_lists_and_ingests(tmp_path: Path, database: Path) -> None
     assert "duplicate" in replay.output
 
     claim = runner.invoke(
-        app, ["claim", "add", str(FIXTURES / "claim_completion_abc123.json")], env=env
+        app, ["claim", "add", str(FIXTURES / "claim-completion-abc123.json")], env=env
     )
     assert claim.exit_code == 0, claim.output
 
     evidence = runner.invoke(
-        app, ["evidence", "add", str(FIXTURES / "evidence_test_def456.json")], env=env
+        app, ["evidence", "add", str(FIXTURES / "evidence-test-def456.json")], env=env
     )
     assert evidence.exit_code == 0, evidence.output
 
@@ -70,7 +70,7 @@ def test_cli_registers_lists_and_ingests(tmp_path: Path, database: Path) -> None
 def test_cli_rejects_invalid_event_with_non_zero_exit(tmp_path: Path, database: Path) -> None:
     runner = CliRunner()
     env = _env(tmp_path, database)
-    invalid = _fixture("event_completion_claim.json")
+    invalid = _fixture("event-completion-claim.json")
     del invalid["event_type"]
     path = tmp_path / "invalid-event.json"
     path.write_text(json.dumps(invalid), encoding="utf-8")
@@ -84,9 +84,9 @@ def test_cli_rejects_invalid_event_with_non_zero_exit(tmp_path: Path, database: 
 def test_cli_batch_exits_non_zero_when_any_item_is_rejected(tmp_path: Path, database: Path) -> None:
     runner = CliRunner()
     env = _env(tmp_path, database)
-    good = _fixture("event_completion_claim.json")
+    good = _fixture("event-completion-claim.json")
     good["producer_event_id"] = "cli-batch-good"
-    bad = _fixture("event_completion_claim.json")
+    bad = _fixture("event-completion-claim.json")
     bad.pop("id")
     bad.pop("event_type")
     bad["producer_event_id"] = "cli-batch-bad"

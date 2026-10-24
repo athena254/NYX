@@ -13,11 +13,11 @@ from nyx.storage.db import SessionFactory, session_scope
 from nyx.storage.repositories.audit import AuditRepository
 from nyx.storage.repositories.events import EventRepository
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+FIXTURES = Path(__file__).resolve().parents[2] / "examples" / "ghost-factory"
 
 
 def _valid_event() -> dict[str, Any]:
-    document = json.loads((FIXTURES / "event_completion_claim.json").read_text(encoding="utf-8"))
+    document = json.loads((FIXTURES / "event-completion-claim.json").read_text(encoding="utf-8"))
     document.pop("id", None)
     document["producer_event_id"] = "validation-valid-1"
     return document

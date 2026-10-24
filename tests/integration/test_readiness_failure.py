@@ -17,11 +17,11 @@ from nyx.config import Settings
 from nyx.storage.db import create_session_factory
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+FIXTURES = Path(__file__).resolve().parents[2] / "examples" / "ghost-factory"
 
 
 def _event() -> dict[str, Any]:
-    document = json.loads((FIXTURES / "event_completion_claim.json").read_text(encoding="utf-8"))
+    document = json.loads((FIXTURES / "event-completion-claim.json").read_text(encoding="utf-8"))
     document.pop("id", None)
     document["producer_event_id"] = "readiness-event-1"
     return document

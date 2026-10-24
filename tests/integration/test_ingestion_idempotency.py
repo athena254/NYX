@@ -10,11 +10,11 @@ from nyx.ingestion.service import IngestionService
 from nyx.storage.db import SessionFactory, session_scope
 from nyx.storage.repositories.events import EventRepository
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+FIXTURES = Path(__file__).resolve().parents[2] / "examples" / "ghost-factory"
 
 
 def _event(producer_event_id: str) -> dict[str, Any]:
-    document = json.loads((FIXTURES / "event_completion_claim.json").read_text(encoding="utf-8"))
+    document = json.loads((FIXTURES / "event-completion-claim.json").read_text(encoding="utf-8"))
     document.pop("id", None)
     document["producer_event_id"] = producer_event_id
     return document
@@ -77,7 +77,7 @@ def test_same_key_with_a_different_payload_is_a_conflict(
 def test_evidence_and_claim_deduplication(
     service: IngestionService, session_factory: SessionFactory
 ) -> None:
-    evidence = json.loads((FIXTURES / "evidence_test_def456.json").read_text(encoding="utf-8"))
+    evidence = json.loads((FIXTURES / "evidence-test-def456.json").read_text(encoding="utf-8"))
     evidence.pop("id", None)
 
     first = service.register_evidence(evidence, request_id="req-e1")
