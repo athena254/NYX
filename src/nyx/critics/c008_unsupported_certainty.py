@@ -197,38 +197,37 @@ class UnsupportedCertaintyCritic:
                 context.scope,
             )
 
-        overconfident = self._overconfidence(claim, context)
-        if overconfident is not None:
-            return overconfident
+        wording = self._wording_vs_evidence(claim, context)
+        if wording is not None:
+            return wording
+
+        return self._overconfidence(claim, context) or _no_finding(
+            f"Claim {claim.id} states no confidence above its support's ceiling.",
+            "The claim's wording is proportionate to its evidence scope and, where it states "
+            "a numeric confidence, that number is within the ceiling its linked support can "
+            "carry. This critic found nothing within its declared scope; this is not a "
+            "statement that the claim is true.",
+            context.scope,
+        )
+
+    def _wording_vs_evidence(self, claim: Claim, context: CriticContext) -> CriticResult | None:
+        """RULES 1 and 2: universal wording backed by a single verification run.
+
+        Run **before** RULE 3 on purpose. A claim can be both universal and overconfident,
+        and when it is, the wording finding is the better-evidenced one: it cites the single
+        run it examined, which the composer requires of an ``unsupported_claim`` finding. A
+        claim that is overconfident but not universal is left to RULE 3.
+        """
 
         verification = [
             item for item in context.linked_evidence if item.kind in _VERIFICATION_KINDS
         ]
         if not verification:
-            return _no_finding(
-                f"Claim {claim.id} has no linked verification evidence.",
-                "This critic assesses wording against attached evidence scope; with no "
-                "linked verification runs there is no evidence scope to compare, and "
-                "missing verification is the completion critic's finding, not this "
-                "critic's.",
-                context.scope,
-            )
+            return None
         if len(verification) > 1:
-            return _no_finding(
-                f"Claim {claim.id} is backed by {len(verification)} linked verification runs.",
-                "The evidence scope is broader than a single run, so this explicit rule "
-                "cannot show the wording outruns the evidence. This critic found nothing "
-                "within its declared scope.",
-                context.scope,
-            )
+            return None
         if not _asserts_universal(claim):
-            return _no_finding(
-                f"Claim {claim.id} does not assert universal scope.",
-                "The claim's wording is proportionate to (no stronger than) a single "
-                "verification run, so this critic found nothing within its declared scope; "
-                "this is not a statement that the claim is true.",
-                context.scope,
-            )
+            return None
 
         evidence = verification[0]
         return CriticResult(
@@ -315,6 +314,14 @@ class UnsupportedCertaintyCritic:
             "This is an assessment of proportion between a stated number and its support, not "
             "a verification that the claim is true or false.",
         ]
+        # An `unsupported_claim` finding must cite the evidence it examined, or the composer
+        # refuses it. With nothing linked there is nothing to cite, so the finding is recorded
+        # as a scoped verification gap instead -- the same split C-001 makes, and the same one
+        # that keeps every finding this critic can produce composable.
+        examined = [item.id for item in context.linked_evidence]
+        category = (
+            FindingCategory.UNSUPPORTED_CLAIM if examined else FindingCategory.MISSING_VERIFICATION
+        )
 
         return CriticResult(
             critic_id=CRITIC_ID,
@@ -342,13 +349,14 @@ class UnsupportedCertaintyCritic:
                 "attach stronger verification — an observation NYX gathered itself — before "
                 "asserting a number this high."
             ),
-            category=FindingCategory.UNSUPPORTED_CLAIM,
+            category=category,
             severity=Severity.MEDIUM,
             title=f"Stated confidence exceeds its support in claim {claim.id}",
             summary=(
                 f"Claim {claim.id} states {stated}% confidence against "
                 f"{strength.value} support, whose ceiling is {ceiling}%."
             ),
+            supporting_evidence_ids=examined,
             claim_ids=[claim.id],
             event_ids=[context.target_event.id],
             affected_system_ids=[claim.claimant_system_id],

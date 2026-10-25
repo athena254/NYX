@@ -68,6 +68,28 @@ def load_corpus() -> list[dict[str, Any]]:
     return cases
 
 
+def load_cases(path: Path) -> list[dict[str, Any]]:
+    """Read a case file in either of the two shapes a case file can take.
+
+    JSONL, one case per line, is what a hand-written corpus looks like. A JSON array is what
+    ``nyx golden export`` writes. Accepting both is not convenience for its own sake: the
+    golden set and the LLM corpus are the same kind of thing, and a runner that could only
+    read one of them would silently refuse the other.
+    """
+
+    text = path.read_text(encoding="utf-8")
+    stripped = text.lstrip()
+    if stripped.startswith("["):
+        cases = json.loads(text)
+        if not isinstance(cases, list):
+            raise SystemExit(f"{path} is a JSON document but not an array of cases")
+    else:
+        cases = [json.loads(line) for line in text.splitlines() if line.strip()]
+    for number, case in enumerate(cases, start=1):
+        case.setdefault("_line", number)
+    return cases
+
+
 def _migrate(directory: Path, database: Path) -> None:
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith("NYX_")}
     env["NYX_DATABASE_URL"] = f"sqlite:///{database.as_posix()}"
@@ -166,10 +188,24 @@ def _family(results: list[CriticResultStatus]) -> str:
 
 
 def score(rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    """Score one predicted column against the expected verdict.
+
+    A row whose prediction is ``not_run`` is **excluded**, not counted wrong. The model leg is
+    skipped for a case with no recorded fixture, and scoring a skip as a false negative would
+    manufacture a failure that did not happen — the same shape of defect as a command that
+    reports a pass it never checked. ``scored`` says how many rows the numbers cover, so a
+    report that silently covers fewer rows than it was given is visible.
+    """
+
     true_positive = false_positive = false_negative = 0
     correct = 0
+    scored = 0
     for row in rows:
-        expected, predicted = row["expected"], row[key]
+        predicted = row[key]
+        if predicted == "not_run":
+            continue
+        scored += 1
+        expected = row["expected"]
         if predicted == expected:
             correct += 1
         if predicted == "finding" and expected == "finding":
@@ -178,11 +214,11 @@ def score(rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
             false_positive += 1
         elif expected == "finding":
             false_negative += 1
-    total = len(rows)
     return {
-        "cases": total,
+        "cases": len(rows),
+        "scored": scored,
         "correct": correct,
-        "accuracy": round(correct / total, 4) if total else 0.0,
+        "accuracy": round(correct / scored, 4) if scored else None,
         "true_positives": true_positive,
         "false_positives": false_positive,
         "false_negatives": false_negative,
@@ -202,6 +238,14 @@ def main() -> int:
     parser.add_argument("--model", default=None)
     parser.add_argument("--protocol", default=None, choices=["openai", "anthropic"])
     parser.add_argument("--timeout", type=float, default=None)
+    parser.add_argument(
+        "--corpus",
+        default=None,
+        help=(
+            "case file to score, as JSONL (one case per line) or as the JSON array "
+            "'nyx golden export' writes. Defaults to the LLM-critic corpus."
+        ),
+    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -209,7 +253,7 @@ def main() -> int:
         print("NYX_LLM_MODEL is required for --live; the runner will not guess a model")
         return 1
 
-    cases = load_corpus()
+    cases = load_cases(Path(args.corpus)) if args.corpus else load_corpus()
     directory = Path(tempfile.mkdtemp(prefix="nyx-llm-eval-"))
     database = directory / "eval.sqlite3"
     _migrate(directory, database)
@@ -270,7 +314,7 @@ def main() -> int:
                         log_prompts=log_prompts,
                     )
                 )
-            else:
+            elif "fixture_response" in case:
                 response = dict(case["fixture_response"])
                 response["supporting_evidence_ids"] = [
                     evidence_ids[int(token.split(":")[1])]
@@ -295,20 +339,27 @@ def main() -> int:
 
             started = time.monotonic()
             with session_scope(factory) as session:
-                model_outcomes = run_selected(
-                    session, event_id=event_id, critic_ids=["c011-llm-critic"]
+                # A case with no fixture is not a model case: it is a golden-set case, scored
+                # against the deterministic pack, with no recorded model response to replay.
+                # Running the LLM leg would need a provider the caller did not ask for, so the
+                # leg is skipped and the row says "not_run" rather than inventing a fixture.
+                run_model_leg = args.live or "fixture_response" in case
+                model_outcomes = (
+                    run_selected(session, event_id=event_id, critic_ids=["c011-llm-critic"])
+                    if run_model_leg
+                    else []
                 )
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
-            outcome = model_outcomes[0]
+            outcome = model_outcomes[0] if model_outcomes else None
             rows.append(
                 {
                     "case_id": case["case_id"],
                     "source": case["source"],
                     "expected": case["expected"],
                     "deterministic": deterministic_family,
-                    "model": outcome.result.value,
+                    "model": outcome.result.value if outcome is not None else "not_run",
                     "model_latency_ms": elapsed_ms,
-                    "model_rationale": outcome.rationale,
+                    "model_rationale": outcome.rationale if outcome is not None else None,
                 }
             )
     finally:

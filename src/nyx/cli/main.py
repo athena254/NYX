@@ -36,6 +36,7 @@ from nyx.audit.checkpoint import (
 from nyx.audit.verifier import VerificationReport, verify_chain
 from nyx.auth.checker import ConfigBackedCapabilityChecker
 from nyx.auth.store import ANONYMOUS_PRINCIPAL_ID, CapabilityStore
+from nyx.cli.golden import golden_app
 from nyx.config import Settings
 from nyx.conversational.agent import (
     ChatAgent,
@@ -125,6 +126,7 @@ app.add_typer(chat_app, name="chat")
 app.add_typer(telegram_app, name="telegram")
 app.add_typer(audit_app, name="audit")
 app.add_typer(retention_app, name="retention")
+app.add_typer(golden_app, name="golden")
 
 
 @app.callback()

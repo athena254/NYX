@@ -268,6 +268,53 @@ def test_stronger_support_raises_the_ceiling() -> None:
     assert result.result is CriticResultStatus.NO_FINDING
 
 
+def test_rule3_with_nothing_linked_is_recorded_as_a_verification_gap() -> None:
+    """Regression: RULE 3 raised an `unsupported_claim` finding that cited no evidence.
+
+    The composer refuses an ``unsupported_claim`` finding with nothing examined, and the
+    eval runner died on it with ``FindingCompositionError``. With no linked evidence there is
+    nothing to cite, so the finding must be a scoped verification gap instead -- the same
+    split C-001 makes.
+    """
+
+    event = _event()
+    event.payload = {"confidence": 99}
+    context = build_context(
+        target_event=event,
+        linked_claim=_claim_id("The migration is complete."),
+        linked_evidence=[],
+        observations=[],
+        now=_NOW,
+    )
+
+    result = UnsupportedCertaintyCritic().run(context)
+
+    assert result.result is CriticResultStatus.FINDING
+    assert result.category is FindingCategory.MISSING_VERIFICATION
+    assert result.supporting_evidence_ids == []
+
+
+def test_rule3_cites_the_evidence_it_examined() -> None:
+    """Near miss: with evidence linked, the finding cites it rather than switching category."""
+
+    linked = _evidence()
+    event = _event()
+    event.payload = {"confidence": 0}
+    context = build_context(
+        target_event=event,
+        linked_claim=_claim_id("The migration is 98% complete and safe to ship."),
+        linked_evidence=[linked],
+        observations=[],
+        now=_NOW,
+    )
+
+    result = UnsupportedCertaintyCritic().run(context)
+
+    assert result.result is CriticResultStatus.FINDING
+    assert result.category is FindingCategory.UNSUPPORTED_CLAIM
+    assert result.supporting_evidence_ids == [linked.id]
+
+
 def test_structural_confidence_field_is_read() -> None:
     """A producer that records the number structurally is read too."""
 
