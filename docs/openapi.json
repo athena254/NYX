@@ -2036,11 +2036,57 @@
             "title": "Limitations",
             "type": "array"
           },
+          "observation_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Observation Ids",
+            "type": "array"
+          },
           "reasoning": {
             "$ref": "#/components/schemas/Reasoning"
           },
           "recommended_action": {
             "$ref": "#/components/schemas/RecommendedAction"
+          },
+          "remediation_hint": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Hint"
+          },
+          "reproducibility": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reproducibility"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "root_cause_key": {
+            "anyOf": [
+              {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Cause Key"
           },
           "schema_version": {
             "default": "1.0",
@@ -2057,6 +2103,19 @@
           "status": {
             "$ref": "#/components/schemas/FindingStatus",
             "default": "detected"
+          },
+          "subject_version": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Version"
           },
           "summary": {
             "maxLength": 4000,
@@ -2094,6 +2153,16 @@
           "updated_at": {
             "title": "Updated At",
             "type": "string"
+          },
+          "verification_strength": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VerificationStrength"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2738,6 +2807,16 @@
         "title": "RecommendedAction",
         "type": "object"
       },
+      "Reproducibility": {
+        "description": "Whether a finding reproduces, and if so how reliably.\n\n``unreproduced`` is not a failure of the check: it is the honest answer when the evidence\nthat raised the finding cannot be replayed. A finding that is unreproduced is a weaker\naccusation than one that replays deterministically, and the distinction is queryable.",
+        "enum": [
+          "deterministic",
+          "flaky",
+          "unreproduced"
+        ],
+        "title": "Reproducibility",
+        "type": "string"
+      },
       "RetentionClass": {
         "enum": [
           "ephemeral",
@@ -3376,6 +3455,17 @@
           "inconclusive"
         ],
         "title": "VerificationResult",
+        "type": "string"
+      },
+      "VerificationStrength": {
+        "description": "How strongly a proposition is supported by what backs it.\n\nOrdered from weakest to strongest, and **shared across every critic** so that one\ncritic's \"verified\" and another's mean the same thing. The ordering is the point: a\ncompletion claim needs at least ``RERUN_BY_NYX`` (SPEC §8, C-001 as upgraded), and the\ncomparison is a simple index test rather than a judgement.\n\n* ``NONE`` -- nothing backs the proposition. An agent said it; that is all.\n* ``SELF_REPORTED`` -- the claimant's own record is the only support. The claimant\n  verifying itself is **not** verification (ADR 0005: evidence is not proof).\n* ``RERUN_BY_NYX`` -- NYX re-executed the check itself at the current subject version.\n  Independent of the claimant, but still reading the same artifact.\n* ``INDEPENDENTLY_OBSERVED_END_STATE`` -- NYX observed the real end state of the\n  environment: the row exists, the file is on disk, the service answers. Strongest.",
+        "enum": [
+          "none",
+          "self_reported",
+          "rerun_by_nyx",
+          "independently_observed_end_state"
+        ],
+        "title": "VerificationStrength",
         "type": "string"
       }
     }
