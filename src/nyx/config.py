@@ -163,6 +163,41 @@ class Settings(BaseSettings):
     agent_transcript_db: str | None = None
     agent_transcript_system_id: str = "agent"
 
+    # --- Ground-truth verification layer ---------------------------------------
+    # Off by default and never a prerequisite: with the layer disabled, NYX behaves exactly as it
+    # did before it existed, and C-001 falls back to the evidence-based rule. The flags exist so
+    # that a deployment can adopt the stronger check deliberately, one step at a time.
+    #
+    # `probes_enabled` is the **kill switch**. It stops every probe, read-only included, because a
+    # capability that can be disabled probe-by-probe but not as a whole is not switchable.
+    probes_enabled: bool = False
+    # A probe that declares read_only=False may only run when this is true AND an authorisation
+    # record covers the action. The gate is closed by default, so a mutating probe is refused
+    # rather than run.
+    probes_allow_mutating: bool = False
+    probe_max_steps: int = Field(default=10, ge=1, le=100)
+    probe_timeout_seconds: float = Field(default=60.0, gt=0, le=3600)
+    # C-001's stronger rule: a completion claim needs an observation of at least
+    # `rerun_by_nyx` strength. Off, the critic keeps its evidence-only behaviour.
+    require_independent_verification: bool = False
+
+    @model_validator(mode="after")
+    def _check_ground_truth_configuration(self) -> Self:
+        """Fail closed on a probe configuration that cannot work.
+
+        Mutating probes without the layer enabled is a contradiction, not a degraded state: the
+        kill switch would refuse the probe anyway, so the setting would look permissive while
+        doing nothing.
+        """
+
+        if self.probes_allow_mutating and not self.probes_enabled:
+            raise ValueError(
+                "NYX_PROBES_ALLOW_MUTATING=true requires NYX_PROBES_ENABLED=true; with the "
+                "kill switch closed every probe is refused, so allowing mutating probes would "
+                "report a permission it does not have"
+            )
+        return self
+
     @model_validator(mode="after")
     def _check_safe_auth_boundary(self) -> Self:
         if self.host not in _LOOPBACK_HOSTS and self.auth_mode == "none":

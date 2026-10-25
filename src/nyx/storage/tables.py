@@ -134,6 +134,71 @@ class EvidenceRow(Base):
     redaction_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class ObservationRow(Base):
+    """One thing NYX observed through a probe (the ground-truth counterpart of a claim).
+
+    ``subject_version`` is indexed because the primary read is "what did NYX observe about this
+    commit/build", which is exactly the query an upgraded C-001 makes to decide whether a linked
+    observation is strong enough and current enough to verify a completion claim.
+    """
+
+    __tablename__ = "observations"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    probe_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    probe_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    subject_version: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
+    collected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    collector: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    method: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    raw_artifact_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    environment: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    read_only: Mapped[bool] = mapped_column(nullable=False, default=True)
+    verification_strength: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    scope: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    relevance_to_claim: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    detail: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+
+class AuthorisationRow(Base):
+    """One recorded approval of a risky action. Append-only.
+
+    ``(actor_id, action, approved_at)`` is unique because re-recording the same approval under a
+    different id would let one authorisation be counted several times when a critic asks "is
+    this action covered?".
+    """
+
+    __tablename__ = "authorisations"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "action", "approved_at", name="uq_authorisations_identity"),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    action: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    risk_action: Mapped[str] = mapped_column(String(48), nullable=False)
+    actor: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    approver: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    approver_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    environment: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    scope_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    approved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    subject_system_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    granted_by: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
 class IdempotencyRow(Base):
     """A reserved dedupe key mapping to the record it produced (SPEC §11.2).
 

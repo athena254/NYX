@@ -31,6 +31,7 @@ from nyx.domain.claims import Claim
 from nyx.domain.enums import CriticResultStatus
 from nyx.domain.events import Event
 from nyx.domain.evidence import EvidenceItem
+from nyx.domain.observation import Observation
 from nyx.findings.composer import compose_finding
 from nyx.findings.models import CriticRun, Finding
 from nyx.ingestion.redaction import redact
@@ -38,6 +39,7 @@ from nyx.storage.repositories.claims import ClaimRepository
 from nyx.storage.repositories.critic_runs import CriticRunRepository
 from nyx.storage.repositories.events import EventRepository
 from nyx.storage.repositories.evidence import EvidenceRepository
+from nyx.storage.repositories.observations import ObservationRepository
 
 _REGISTRY: dict[str, Critic] = {}
 
@@ -281,11 +283,13 @@ def _build_context(session: Session, event: Event, *, now: datetime) -> CriticCo
     claim = _linked_claim(session, event)
     related_claims = _related_claims(session, event, claim)
     evidence = _linked_evidence(session, event, claim)
+    observations = _observations(session, claim)
     return build_context(
         target_event=event,
         linked_claim=claim,
         related_claims=related_claims,
         linked_evidence=evidence,
+        observations=observations,
         now=now,
     )
 
@@ -337,6 +341,20 @@ def _linked_evidence(session: Session, event: Event, claim: Claim | None) -> lis
         if found is not None:
             linked.append(found)
     return linked
+
+
+def _observations(session: Session, claim: Claim | None) -> list[Observation]:
+    """Return observations NYX gathered against the linked claim, if any.
+
+    Keyed on the claim rather than the event because an observation is collected *to test a
+    proposition*: a probe run against a subject with no claim behind it is an observation about
+    the subject, not support for any particular statement, and passing it to a critic as support
+    would be exactly the kind of unearned verification this layer exists to prevent.
+    """
+
+    if claim is None:
+        return []
+    return ObservationRepository(session).list(relevance_to_claim=claim.id, limit=200)
 
 
 def _input_refs(context: CriticContext) -> list[str]:

@@ -158,3 +158,100 @@ schema in agreement.
 - It will not copy restricted evidence into a finding merely because the caller can read the finding.
 - It will not send unredacted sensitive payloads to a model.
 - It will not use model confidence as a calibrated probability without separate calibration work.
+
+---
+
+## 11. Four kinds of evidence: claim, observation, artifact, authorisation
+
+Everything above describes **what a producer reported**. The ground-truth layer adds the other
+three kinds, and the separation between them is the point rather than bookkeeping.
+
+| Kind | Record | Answers | Does not answer |
+| --- | --- | --- | --- |
+| **Claim** | `nyx.domain.claims.Claim` | What an agent or system **asserts**: done, fixed, deployed, tests pass. | Whether it is true. |
+| **Observation** | `nyx.domain.observation.Observation` | What **NYX itself gathered** through a probe about the real end state. | Whether the probe covered everything; an observation is one look, not a survey. |
+| **Artifact** | `EvidenceItem` with `kind=artifact_digest` and a `content_hash` | That a stored file or bundle is byte-identical to a previously recorded digest. | That its content is true (ADR 0005). |
+| **Authorisation** | `nyx.domain.authorisation.Authorisation` | Who approved what action, for what scope, until when. | That the approval was wise, or that the action was taken. |
+
+> **A transcript is what an agent says and does. An outcome is the actual final state of the
+> environment.** Claiming a booking was made is not the same as the booking existing in the
+> database. Keeping the two in different records is what makes the second checkable independently
+> of the first.
+
+Two consequences follow, and both are enforced in code rather than documented only:
+
+1. **A claimant cannot verify itself.** `nyx.evidence.verification.strength_of_evidence` returns
+   `self_reported` for *every* evidence item, whatever its `integrity_method`. A signed attestation
+   is still a claim about the world made by someone.
+2. **An observation carries its own strength, decided by the probe kind that produced it.**
+   `strength_of_observation` is a pass-through, so a probe can say what it is worth without a
+   second place needing to know how it works.
+
+### 11.1 Verification strength
+
+One shared enum, `VerificationStrength`, ordered weakest to strongest:
+
+| Strength | Meaning | Example |
+| --- | --- | --- |
+| `none` | Nothing backs the proposition. An agent said it; that is all. | A transcript sentence with no linked record. |
+| `self_reported` | The claimant's own record is the only support. | A CI record the claimant produced. |
+| `rerun_by_nyx` | NYX re-executed the check itself at the current subject version. | `ReexecutionProbe` returning exit code 0. |
+| `independently_observed_end_state` | NYX observed the real end state of the environment. | `StateCheckProbe` reading the live row; `SideEffectProbe` finding the effect. |
+
+The ordering is what makes "is this strong enough?" a comparison rather than a judgement:
+`nyx.evidence.verification.is_at_least` is an index test. The floor for a completion claim is
+`COMPLETION_MINIMUM_STRENGTH = rerun_by_nyx`; a claim backed only by `self_reported` evidence does
+not clear it, and the upgraded C-001 says so.
+
+An empty support set is `strongest([]) == none`, not an error. "Nothing backs this" is a real state
+a critic must be able to see.
+
+### 11.2 What an observation establishes, and what it does not
+
+An observation is **one probe run against one subject at one version**. It does not establish:
+
+- that the probe covered the whole subject (a probe that reads one row is not a survey);
+- that the subject is the deployed artifact (a staging observation is not production);
+- that nothing else changed since (a later change can invalidate it);
+- that the probe's own instrumentation is complete.
+
+It *does* establish that NYX, independently of the claimant, looked at version `subject_version` of
+`subject` and found `detail`. That is exactly the gap the claim/observation split opens, and it is
+the most a single probe can honestly say.
+
+### 11.3 Observations are linked to claims, not to subjects
+
+`Observation.relevance_to_claim` is what makes an observation *support*. An observation gathered
+before any claim exists is still stored — an adapter observes before a claim references it — but it
+is support for no particular proposition. `evidence_supports(claim_id, ...)` respects the link on
+both sides, so a strong observation of the wrong claim cannot verify this one.
+
+### 11.4 The subject version is the freshness anchor
+
+`Observation.subject_version` is the commit, build hash, config hash, or deployment id the
+observation applies to. A critic binds an observation to the claim through it: an observation of
+commit `def456` cannot verify a claim about `abc123`. An observation with **no** declared version
+does not match a dated claim at all — an undated observation cannot verify a dated one. That is the
+same rule C-003 already applies to evidence, applied to the stronger record.
+
+### 11.5 Probes are read-only by default
+
+`Probe.read_only` is a declared property, not a discovery. A probe that reports `False` mutated
+something, and `ProbeRegistry` refuses to run it unless the mutating-probe gate is open **and** an
+unexpired, in-scope `Authorisation` covers the action. `Settings.probes_enabled` is the kill switch
+and stops every probe, read-only included. See `docs/probe-authoring.md` and
+`docs/safety-model.md`.
+
+### 11.6 Claim extraction is deterministic and traceable
+
+`nyx.evidence.claims.RegexClaimExtractor` turns transcript text into typed claims. A claim is the
+**sentence** containing a match, not the match: the span is a unit a reader would quote, and the
+certainty markers are read from that same span so "The tests passed 100%." carries its own
+overconfidence. Every claim keeps `(start, end)` offsets into the original text, because a claim
+whose text differs from its span cannot be audited.
+
+Extraction is conservative in both directions: a sentence no pattern matches yields no claim, a
+question yields no claim, and one sentence can yield several claims when several patterns match it.
+
+An LLM may assist later behind the `ClaimExtractor` seam. Any implementation must keep the source
+span, which is why `ExtractedClaim.span` is required rather than optional.

@@ -20,6 +20,7 @@ from nyx.domain.base import NyxModel, Scope, UtcDatetime, utc_now
 from nyx.domain.claims import Claim
 from nyx.domain.events import Event
 from nyx.domain.evidence import EvidenceItem
+from nyx.domain.observation import Observation
 
 
 class CriticContext(NyxModel):
@@ -33,12 +34,20 @@ class CriticContext(NyxModel):
     the claim's scope when a claim is linked, otherwise the narrowest scope derivable from the
     event. ``now`` is the clock reading taken when the context was built, so a critic's
     freshness checks are reproducible.
+
+    ``observations`` are what NYX itself gathered through a probe about the same subject. They
+    are carried beside the evidence rather than merged into it, because a probe result and a
+    producer's report are different kinds of thing: one is what NYX saw, the other is what
+    someone said. A critic that needs to know whether a claim is *verified* rather than
+    *reported* reads this list, and ``relevance_to_claim`` decides which observation belongs to
+    which claim.
     """
 
     target_event: Event
     linked_claim: Claim | None = None
     related_claims: list[Claim] = Field(default_factory=list, max_length=64)
     linked_evidence: list[EvidenceItem] = Field(default_factory=list, max_length=64)
+    observations: list[Observation] = Field(default_factory=list, max_length=64)
     scope: Scope
     now: UtcDatetime = Field(default_factory=utc_now)
 
@@ -67,6 +76,7 @@ def build_context(
     linked_claim: Claim | None = None,
     related_claims: list[Claim] | None = None,
     linked_evidence: list[EvidenceItem] | None = None,
+    observations: list[Observation] | None = None,
     now: UtcDatetime | None = None,
 ) -> CriticContext:
     """Assemble the read-only context for one critic run.
@@ -81,6 +91,7 @@ def build_context(
         linked_claim=linked_claim,
         related_claims=list(related_claims or []),
         linked_evidence=list(linked_evidence or []),
+        observations=list(observations or []),
         scope=resolved,
         now=now or utc_now(),
     )

@@ -104,6 +104,86 @@ class EvidenceKind(StrEnum):
     OTHER = "other"
 
 
+class VerificationStrength(StrEnum):
+    """How strongly a proposition is supported by what backs it.
+
+    Ordered from weakest to strongest, and **shared across every critic** so that one
+    critic's "verified" and another's mean the same thing. The ordering is the point: a
+    completion claim needs at least ``RERUN_BY_NYX`` (SPEC §8, C-001 as upgraded), and the
+    comparison is a simple index test rather than a judgement.
+
+    * ``NONE`` -- nothing backs the proposition. An agent said it; that is all.
+    * ``SELF_REPORTED`` -- the claimant's own record is the only support. The claimant
+      verifying itself is **not** verification (ADR 0005: evidence is not proof).
+    * ``RERUN_BY_NYX`` -- NYX re-executed the check itself at the current subject version.
+      Independent of the claimant, but still reading the same artifact.
+    * ``INDEPENDENTLY_OBSERVED_END_STATE`` -- NYX observed the real end state of the
+      environment: the row exists, the file is on disk, the service answers. Strongest.
+    """
+
+    NONE = "none"
+    SELF_REPORTED = "self_reported"
+    RERUN_BY_NYX = "rerun_by_nyx"
+    INDEPENDENTLY_OBSERVED_END_STATE = "independently_observed_end_state"
+
+
+class RiskAction(StrEnum):
+    """The risk taxonomy C-006 classifies an action against.
+
+    Seven categories, named by the brief and kept deliberately small. An action that maps to
+    none of them is **not** high-impact: inventing a category would manufacture findings, and a
+    false accusation is worse than a missed verb. C-006's existing token set is the *detection*
+    mechanism; this enum is the *classification* the detection maps into.
+
+    * ``DELETE`` -- remove a record, file, or resource.
+    * ``OVERWRITE_PRODUCTION_STATE`` -- write to a production database, table, or store.
+    * ``DEPLOY`` -- release or roll back a deployment.
+    * ``SPEND`` -- commit money or quota.
+    * ``EXTERNAL_SEND`` -- transmit data outside the trust boundary (email, webhook, message).
+    * ``PERMISSION_CHANGE`` -- grant, revoke, or alter a permission or capability.
+    * ``SECRET_ACCESS`` -- read a credential, token, or key.
+    """
+
+    DELETE = "delete"
+    OVERWRITE_PRODUCTION_STATE = "overwrite_production_state"
+    DEPLOY = "deploy"
+    SPEND = "spend"
+    EXTERNAL_SEND = "external_send"
+    PERMISSION_CHANGE = "permission_change"
+    # S105 is the hardcoded-password rule, and this string is a taxonomy label, not a credential:
+    # it names the category of action that needs authorisation. The value is the wire name, so
+    # splitting it to satisfy the linter would make the label unreadable for no security gain.
+    SECRET_ACCESS = "secret_access"  # noqa: S105
+
+
+class ProbeKind(StrEnum):
+    """The five probe kinds the ground-truth layer ships with.
+
+    A probe kind is a *method*, not a permission. ``read_only`` on the probe result is what
+    governs safety, and a probe that reports ``read_only=False`` may only run behind the
+    mutating-probe gate (``docs/safety-model.md``).
+    """
+
+    STATE_CHECK = "state_check"
+    REEXECUTION = "reexecution"
+    TOOL_CALL_VERIFICATION = "tool_call_verification"
+    SIDE_EFFECT = "side_effect"
+    LOG_METRIC_QUERY = "log_metric_query"
+
+
+class ProbeOutcome(StrEnum):
+    """What one probe established.
+
+    ``ERROR`` and ``SKIPPED`` are distinct on purpose: a probe that could not run is not a
+    probe that found nothing, and conflating them would let a broken collector look clean.
+    """
+
+    OBSERVED = "observed"
+    NOT_OBSERVED = "not_observed"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
 class IntegrityMethod(StrEnum):
     NONE = "none"
     HASH = "hash"

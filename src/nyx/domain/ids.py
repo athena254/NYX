@@ -29,6 +29,8 @@ IdPrefix = Literal[
     "evt_",
     "clm_",
     "ev_",
+    "obs_",
+    "aut_",
     "fnd_",
     "crn_",
     "rbt_",
@@ -101,6 +103,14 @@ def new_claim_id() -> str:
 
 def new_evidence_id() -> str:
     return new_id("ev_")
+
+
+def new_observation_id() -> str:
+    return new_id("obs_")
+
+
+def new_authorisation_id() -> str:
+    return new_id("aut_")
 
 
 def new_finding_id() -> str:
