@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from nyx.critics.base import CriticResult
 from nyx.critics.c010_nyx_self_consistency import (
     CRITIC_ID,
     CRITIC_VERSION,
@@ -270,3 +271,310 @@ def test_tampered_audit_entry_fires(session_factory: SessionFactory) -> None:
     assert result.result is CriticResultStatus.FINDING
     observations_text = " ".join(result.observations).lower()
     assert "entry_hash" in observations_text or "prior_entry_hash" in observations_text
+
+
+# ---------------------------------------------------------------------------
+# The meta-findings: disagreements between rows NYX itself wrote.
+# ---------------------------------------------------------------------------
+
+_ROOT_CAUSE = "sha256:" + "a" * 64
+
+
+def _persist_flagged(
+    session: object,
+    *,
+    finding_id: str,
+    severity: Severity = Severity.MEDIUM,
+    status: FindingStatus = FindingStatus.DETECTED,
+    root_cause_key: str | None = None,
+    duplicate_of: str | None = None,
+    observation_ids: tuple[str, ...] = (),
+) -> Finding:
+    """Persist a finding carrying the ground-truth extension columns."""
+
+    run = CriticRun(
+        id=f"run_{finding_id}",
+        critic_id="critic_meta_probe",
+        critic_version="1.0.0",
+        input_refs=["clm_c010_test"],
+        started_at=_NOW,
+        completed_at=_NOW,
+        result=CriticResultStatus.FINDING,
+        rationale="recorded rationale",
+    )
+    CriticRunRepository(session).add(run)  # type: ignore[arg-type]
+
+    finding = Finding(
+        id=finding_id,
+        title=f"Self-consistency probe {finding_id}",
+        summary="A finding exercised by C-010's meta-finding tests.",
+        category=FindingCategory.MISSING_VERIFICATION,
+        severity=severity,
+        scope=Scope(system_id="sys_c010_test", artifact="demo", commit="abc123"),
+        affected_system_ids=["sys_c010_test"],
+        claim_ids=["clm_c010_test"],
+        evidence_ids=[],
+        reasoning=Reasoning(observations=["Something was observed."]),
+        recommended_action=RecommendedAction(text="Investigate."),
+        status=status,
+        critic_runs=[run],
+        root_cause_key=root_cause_key,
+        duplicate_of=duplicate_of,
+        observation_ids=list(observation_ids),
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+    FindingRepository(session).add(finding)  # type: ignore[arg-type]
+    CriticRunRepository(session).link_finding(run.id, finding.id)  # type: ignore[arg-type]
+    return finding
+
+
+def _persist_run(
+    session: object,
+    *,
+    run_id: str,
+    critic_id: str = "critic_meta_probe",
+    critic_version: str = "1.0.0",
+    critic_type: str = "deterministic",
+    prompt_version: str | None = None,
+) -> CriticRun:
+    run = CriticRun(
+        id=run_id,
+        critic_id=critic_id,
+        critic_type=critic_type,
+        critic_version=critic_version,
+        prompt_version=prompt_version,
+        input_refs=["clm_c010_test"],
+        started_at=_NOW,
+        completed_at=_NOW,
+        result=CriticResultStatus.NO_FINDING,
+        rationale="recorded rationale",
+    )
+    CriticRunRepository(session).add(run)  # type: ignore[arg-type]
+    return run
+
+
+def _run_c010(session_factory: SessionFactory) -> CriticResult:
+    return NyxSelfConsistencyCritic(session_factory).run(  # type: ignore[arg-type]
+        _scoped_context()
+    )
+
+
+def _violations(session_factory: SessionFactory) -> list[str]:
+    """Assert the store is inconsistent, and return the reported violations."""
+
+    result = _run_c010(session_factory)
+    assert result.result is CriticResultStatus.FINDING, result.proposition
+    return list(result.observations)
+
+
+def _assert_clean(session_factory: SessionFactory) -> None:
+    """Assert the store passes every one of C-010's checks."""
+
+    result = _run_c010(session_factory)
+    assert result.result is CriticResultStatus.NO_FINDING, list(result.observations)
+
+
+# -- duplicate root causes ----------------------------------------------------
+
+
+def test_two_active_findings_on_one_root_cause_fire(
+    session_factory: SessionFactory,
+) -> None:
+    """One defect recorded twice, with no duplicate_of link between the two rows."""
+
+    with session_scope(session_factory) as session:
+        _persist_flagged(session, finding_id="fnd_dup_a", root_cause_key=_ROOT_CAUSE)
+        _persist_flagged(session, finding_id="fnd_dup_b", root_cause_key=_ROOT_CAUSE)
+
+    found = " ".join(_violations(session_factory))
+
+    assert "one defect is recorded twice" in found
+    assert "fnd_dup_a" in found and "fnd_dup_b" in found
+
+
+def test_a_recorded_duplicate_of_link_is_not_a_violation(
+    session_factory: SessionFactory,
+) -> None:
+    """Near miss: the store already knows which row is the keeper."""
+
+    with session_scope(session_factory) as session:
+        _persist_flagged(session, finding_id="fnd_keep", root_cause_key=_ROOT_CAUSE)
+        _persist_flagged(
+            session,
+            finding_id="fnd_secondary",
+            root_cause_key=_ROOT_CAUSE,
+            duplicate_of="fnd_keep",
+        )
+
+    _assert_clean(session_factory)
+
+
+def test_a_withdrawn_finding_is_not_a_second_accusation(
+    session_factory: SessionFactory,
+) -> None:
+    """Near miss: a rejected row is not a live second accusation of the same defect.
+
+    The withdrawn row is driven through the lifecycle rather than written directly, because
+    C-010's transition check requires every non-detected status to have a recorded history.
+    Writing the status by hand would be asserting that the *transition* check is clean.
+    """
+
+    with session_scope(session_factory) as session:
+        _persist_flagged(session, finding_id="fnd_live", root_cause_key=_ROOT_CAUSE)
+        withdrawn = _persist_flagged(
+            session,
+            finding_id="fnd_withdrawn",
+            root_cause_key=_ROOT_CAUSE,
+            status=FindingStatus.DETECTED,
+        )
+        lifecycle = FindingLifecycle(  # type: ignore[arg-type]
+            session, capability_checker=_AllowAllChecker()
+        )
+        lifecycle.transition(
+            TransitionRequest(
+                finding_id=withdrawn.id,
+                target_status=FindingStatus.WITHDRAWN,
+                actor=_ACTOR,
+                request_id="req_c010_withdraw",
+                rationale="recorded rationale",
+            )
+        )
+
+    _assert_clean(session_factory)
+
+
+# -- contradictory severities -------------------------------------------------
+
+
+def test_contradictory_severities_for_one_root_cause_fire(
+    session_factory: SessionFactory,
+) -> None:
+    with session_scope(session_factory) as session:
+        _persist_flagged(
+            session,
+            finding_id="fnd_sev_low",
+            severity=Severity.LOW,
+            root_cause_key=_ROOT_CAUSE,
+        )
+        _persist_flagged(
+            session,
+            finding_id="fnd_sev_high",
+            severity=Severity.HIGH,
+            root_cause_key=_ROOT_CAUSE,
+        )
+
+    found = " ".join(_violations(session_factory))
+
+    assert "contradictory severities" in found
+
+
+def test_one_severity_per_root_cause_passes(session_factory: SessionFactory) -> None:
+    """Near miss: agreeing severities are not a violation.
+
+    The second row is also recorded as the first one's duplicate, because two active rows on
+    one root cause is itself a violation -- without the link this test would be asserting
+    that the *duplicate* check is clean rather than the severity check.
+    """
+
+    with session_scope(session_factory) as session:
+        _persist_flagged(session, finding_id="fnd_agree_a", root_cause_key=_ROOT_CAUSE)
+        _persist_flagged(
+            session,
+            finding_id="fnd_agree_b",
+            root_cause_key=_ROOT_CAUSE,
+            duplicate_of="fnd_agree_a",
+        )
+
+    _assert_clean(session_factory)
+
+
+# -- observation references ---------------------------------------------------
+
+
+def test_observation_reference_that_does_not_resolve_fires(
+    session_factory: SessionFactory,
+) -> None:
+    """A finding citing a probe result NYX never stored is not evidence-linked."""
+
+    with session_scope(session_factory) as session:
+        _persist_flagged(session, finding_id="fnd_obs_missing", observation_ids=("obs_absent",))
+
+    found = " ".join(_violations(session_factory))
+
+    assert "observation ids that do not exist" in found
+    assert "obs_absent" in found
+
+
+def test_a_resolving_observation_reference_passes(session_factory: SessionFactory) -> None:
+    """Near miss: an observation NYX did store is a valid reference."""
+
+    from nyx.domain.observation import Observation
+    from nyx.storage.repositories.observations import ObservationRepository
+
+    with session_scope(session_factory) as session:
+        ObservationRepository(session).add(  # type: ignore[arg-type]
+            Observation(
+                id="obs_present",
+                probe_id="probe_state_check",
+                probe_version="1.0.0",
+                subject="sys_c010_test",
+                collected_at=_NOW,
+                collector=_ACTOR,
+                method="state_check",
+                result="observed",
+                environment="staging",
+                read_only=True,
+                verification_strength="independently_observed_end_state",
+            )
+        )
+        _persist_flagged(session, finding_id="fnd_obs_present", observation_ids=("obs_present",))
+
+    _assert_clean(session_factory)
+
+
+# -- version drift ------------------------------------------------------------
+
+
+def test_critic_version_drift_fires(session_factory: SessionFactory) -> None:
+    """One critic id running under two rule versions breaks result attribution."""
+
+    with session_scope(session_factory) as session:
+        _persist_run(session, run_id="run_v1", critic_version="1.0.0")
+        _persist_run(session, run_id="run_v2", critic_version="2.0.0")
+
+    found = " ".join(_violations(session_factory))
+
+    assert "different critic versions" in found
+
+
+def test_one_critic_version_passes(session_factory: SessionFactory) -> None:
+    """Near miss: a single version for one critic id is not drift."""
+
+    with session_scope(session_factory) as session:
+        _persist_run(session, run_id="run_a", critic_version="1.0.0")
+        _persist_run(session, run_id="run_b", critic_version="1.0.0")
+
+    _assert_clean(session_factory)
+
+
+def test_judge_drift_fires(session_factory: SessionFactory) -> None:
+    """A model critic running under two prompt versions is not comparable across runs."""
+
+    with session_scope(session_factory) as session:
+        _persist_run(session, run_id="run_p1", critic_type="llm", prompt_version="v1")
+        _persist_run(session, run_id="run_p2", critic_type="llm", prompt_version="v2")
+
+    found = " ".join(_violations(session_factory))
+
+    assert "different judge configurations" in found
+
+
+def test_one_judge_configuration_passes(session_factory: SessionFactory) -> None:
+    """Near miss: one prompt version is not drift."""
+
+    with session_scope(session_factory) as session:
+        _persist_run(session, run_id="run_q1", critic_type="llm", prompt_version="v1")
+        _persist_run(session, run_id="run_q2", critic_type="llm", prompt_version="v1")
+
+    _assert_clean(session_factory)

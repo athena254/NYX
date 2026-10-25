@@ -184,6 +184,10 @@ class Settings(BaseSettings):
     # change touched, not merely the same commit. Off, the critic compares only the scope fields
     # that existed before the ground-truth layer.
     require_coverage_scope: bool = False
+    # C-004's stronger rule: verification evidence must carry a subject version and a content
+    # hash, and every other kind at least one of a producer identity or a hash. Off, the critic
+    # keeps the provenance checks it had before the ground-truth layer.
+    require_verifiable_origin: bool = False
     # C-006's stronger rule: an approval reference is not enough -- the authorisation record it
     # points at must name an approver other than the actor, cover the action's scope, and not
     # have expired. Off, the critic's behaviour is unchanged and a present reference still

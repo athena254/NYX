@@ -1,21 +1,44 @@
 """C-010 — NYX self-consistency (SPEC §8).
 
-NYX checking itself. Four checks against the configured storage model:
+NYX checking itself. Nine checks against the configured storage model:
 
 1. **Valid evidence references.** Every stored finding's evidence id references resolve to
    a stored evidence item, and a ``confirmed`` finding carries a rationale — at least one
    recorded critic run with a non-empty rationale (safety invariant 1).
-2. **Valid state transitions.** For every finding, the recorded ``finding.transition``
+2. **Valid observation references.** Every finding's ``observation_ids`` resolve to a stored
+   observation. A finding that cites a probe result which does not exist is exactly as
+   unverifiable as one citing evidence that does not exist, and the two were checked
+   separately only because the columns were added at different times.
+3. **Valid state transitions.** For every finding, the recorded ``finding.transition``
    audit history replays from ``detected`` through the SPEC §6 transition graph, and the
    replayed final state equals the stored status. A non-detected stored status with no
    recorded transitions is a violation: the documented model derives the row's status
    from the latest valid transition.
-3. **Critic versions recorded.** Every critic run row carries a non-empty
+4. **Critic versions recorded.** Every critic run row carries a non-empty
    ``critic_version`` (SPEC §5.6), and every finding has at least one critic run.
-4. **Complete audit chain.** Audit sequences are contiguous from 1, each entry's
+5. **Complete audit chain.** Audit sequences are contiguous from 1, each entry's
    ``prior_entry_hash`` links to the previous entry's ``entry_hash``, and every
    ``entry_hash`` recomputes from the stored fields via the audit writer's own hash
    function (imported, so the check and the writer cannot diverge).
+6. **No duplicate findings.** Findings that share a non-null ``root_cause_key`` are the same
+   underlying defect by construction. When more than one of them is still *active* — and
+   neither is recorded as the other's ``duplicate_of`` — the deduplication did not do its
+   job, and two rows are asserting one defect.
+7. **No contradictory severities for one root cause.** Findings sharing a ``root_cause_key``
+   must agree on severity. Two severities for one defect means one of them is wrong, and a
+   reader cannot tell which.
+8. **No critic version drift.** One ``critic_id`` must not run under two different
+   ``critic_version`` values. A drift means the recorded result cannot be attributed to a
+   known rule version, which is what SPEC §5.6 exists to make possible.
+9. **No judge drift.** A model-backed critic must not run under two different
+   ``(model_provider, model_version, prompt_version)`` tuples. The same is true of a
+   deterministic critic's ``rule_version``. A drifted judge is the failure the golden set
+   exists to catch, so the drift is reported here where it can be seen before a finding
+   cites it.
+
+Checks 6–9 are the "meta-findings" the ground-truth upgrade asks for. They are deliberately
+narrow: each fires only on a *stored* disagreement between rows NYX itself wrote, never on a
+judgement about what a finding says.
 
 Access: unlike the other critics this one reads the store, so it is constructed with the
 application's ``SessionFactory``; ``run`` opens its own transaction via ``session_scope``.
@@ -50,13 +73,36 @@ from nyx.domain.enums import (
 from nyx.findings.lifecycle import allowed_transitions
 from nyx.storage.db import SessionFactory, session_scope
 from nyx.storage.repositories._mapping import as_utc
-from nyx.storage.tables import AuditRow, CriticRunRow, EvidenceRow, FindingRow
+from nyx.storage.tables import (
+    AuditRow,
+    CriticRunRow,
+    EvidenceRow,
+    FindingRow,
+    ObservationRow,
+)
 
 CRITIC_ID = "c010-nyx-self-consistency"
-CRITIC_VERSION = "1.0.0"
+CRITIC_VERSION = "1.1.0"
 
 _TRANSITION_ACTION = "finding.transition"
 _TRANSITION_RE = re.compile(r"lifecycle transition ([a-z_]+) -> ([a-z_]+)")
+
+#: Statuses in which a finding still asserts a defect. A finding in any other status has been
+#: withdrawn, rejected, accepted as risk, closed, expired, or recorded as someone else's
+#: duplicate, so it is no longer an active second accusation of the same defect.
+_ACTIVE_STATUSES = frozenset(
+    {
+        FindingStatus.DETECTED.value,
+        FindingStatus.EVIDENCE_PENDING.value,
+        FindingStatus.CHALLENGED.value,
+        FindingStatus.REBUTTAL_PENDING.value,
+        FindingStatus.VERIFICATION_PENDING.value,
+        FindingStatus.CONFIRMED.value,
+        FindingStatus.PARTIALLY_CONFIRMED.value,
+        FindingStatus.REMEDIATION_PENDING.value,
+        FindingStatus.FIXED_PENDING_VERIFICATION.value,
+    }
+)
 
 
 def _no_finding(proposition: str, rationale: str, scope: Scope) -> CriticResult:
@@ -85,19 +131,23 @@ class NyxSelfConsistencyCritic:
     critic_id = CRITIC_ID
     critic_version = CRITIC_VERSION
     description = (
-        "Check that every confirmed finding has valid evidence references and a rationale, "
-        "that state transitions are valid, that critic versions are recorded, and that the "
-        "audit chain is complete within the configured storage model."
+        "Check that every confirmed finding has valid evidence and observation references and a "
+        "rationale, that state transitions are valid, that critic versions are recorded, that the "
+        "audit chain is complete, and that no root cause is asserted twice, with contradictory "
+        "severities, or under a drifted critic or judge version."
     )
     scope = CriticScope(
         can_assess=[
-            "stored findings, critic runs, evidence references, and audit entries in the "
-            "configured storage model",
+            "stored findings, critic runs, evidence references, observation references, and "
+            "audit entries in the configured storage model",
+            "disagreements between rows NYX itself wrote: duplicate root causes, contradictory "
+            "severities, and critic/judge version drift across runs",
         ],
         cannot_assess=[
             "the truth of stored content",
             "storage outside the configured model",
             "authorisation or capability decisions",
+            "whether a critic's *rule* is correct, as opposed to consistently versioned",
         ],
     )
     critic_type = CriticType.DETERMINISTIC
@@ -129,26 +179,190 @@ class NyxSelfConsistencyCritic:
             return self._violation_result(violations, context)
         return _no_finding(
             "The stored model is self-consistent within the configured storage model.",
-            "Every stored finding's evidence references resolve, every confirmed finding "
-            "carries a rationale, every recorded transition replays legally from 'detected' "
-            "to the stored status, every critic run records a critic version, and the "
-            "audit chain is contiguous and hash-complete. This means only that the store "
-            "is internally consistent — not that any finding's content is true.",
+            "Every stored finding's evidence and observation references resolve, every "
+            "confirmed finding carries a rationale, every recorded transition replays legally "
+            "from 'detected' to the stored status, every critic run records a critic version, "
+            "the audit chain is contiguous and hash-complete, and no root cause is asserted by "
+            "two active findings, carries two severities, or ran under a drifted critic or "
+            "judge version. This means only that the store is internally consistent — not that "
+            "any finding's content is true.",
             context.scope,
         )
 
     def _check_store(self, session: Session) -> list[str]:
-        """Run all four checks and return the violation list (empty means consistent)."""
+        """Run all nine checks and return the violation list (empty means consistent)."""
 
         findings = list(session.scalars(select(FindingRow).order_by(FindingRow.id)))
         runs = list(session.scalars(select(CriticRunRow).order_by(CriticRunRow.id)))
         audits = list(session.scalars(select(AuditRow).order_by(AuditRow.sequence)))
         evidence_ids = set(session.scalars(select(EvidenceRow.id)))
+        observation_ids = set(session.scalars(select(ObservationRow.id)))
 
         violations: list[str] = []
         violations.extend(self._check_audit_chain(audits))
         violations.extend(self._check_findings(findings, runs, evidence_ids))
+        violations.extend(self._check_observation_refs(findings, observation_ids))
         violations.extend(self._check_transitions(findings, audits))
+        violations.extend(self._check_duplicate_findings(findings))
+        violations.extend(self._check_contradictory_severities(findings))
+        violations.extend(self._check_critic_version_drift(runs))
+        violations.extend(self._check_judge_drift(runs))
+        return violations
+
+    @staticmethod
+    def _check_observation_refs(findings: list[FindingRow], observation_ids: set[str]) -> list[str]:
+        """Check that every finding's observation references resolve to a stored observation.
+
+        Same rule as the evidence-reference check, applied to the probe results NYX gathered
+        itself. A finding that cites an observation which does not exist is not evidence-linked,
+        whatever its ``observation_refs`` claims.
+        """
+
+        violations: list[str] = []
+        for row in findings:
+            unknown = sorted(ref for ref in row.observation_ids if ref not in observation_ids)
+            if unknown:
+                violations.append(
+                    f"finding {row.id} references observation ids that do not exist: "
+                    f"{', '.join(unknown)}"
+                )
+        return violations
+
+    @staticmethod
+    def _check_duplicate_findings(findings: list[FindingRow]) -> list[str]:
+        """Check that no root cause is asserted by more than one active finding.
+
+        ``root_cause_key`` is the shared defect identity: two findings that share one *are* the
+        same defect. The store's own deduplication marks the loser with ``status='duplicate'``
+        and ``duplicate_of`` pointing at the keeper, so a second *active* row for one key means
+        the merge did not happen.
+
+        Only active statuses count. A finding that was rejected, withdrawn, accepted as risk,
+        closed, expired, or already marked as someone else's duplicate is not a second
+        accusation, and counting it would report a resolved defect as a live one.
+        """
+
+        by_key: dict[str, list[FindingRow]] = {}
+        for row in findings:
+            if row.root_cause_key:
+                by_key.setdefault(row.root_cause_key, []).append(row)
+
+        violations: list[str] = []
+        for key, rows in sorted(by_key.items()):
+            if len(rows) < 2:
+                continue
+            active = [row for row in rows if row.status in _ACTIVE_STATUSES]
+            if len(active) < 2:
+                continue
+            # The store already knows which row is the keeper when every other active row
+            # records a duplicate_of link pointing at an active row. At most one keeper may
+            # be unlinked; two unlinked rows are one defect recorded twice.
+            active_ids = {row.id for row in active}
+            linked = [row for row in active if row.duplicate_of in active_ids]
+            if len(active) - len(linked) <= 1:
+                continue
+            ids = ", ".join(sorted(row.id for row in active))
+            violations.append(
+                f"root cause {key} is asserted by {len(active)} active findings ({ids}) "
+                "without a duplicate_of link between them: one defect is recorded twice"
+            )
+        return violations
+
+    @staticmethod
+    def _check_contradictory_severities(findings: list[FindingRow]) -> list[str]:
+        """Check that findings sharing a root cause agree on severity.
+
+        Two severities for one root cause means one of them is wrong, and nothing in the store
+        says which. A reader ranking work by severity cannot tell whether the defect is MEDIUM
+        or HIGH, which is the whole point of recording the severity at all.
+        """
+
+        by_key: dict[str, list[FindingRow]] = {}
+        for row in findings:
+            if row.root_cause_key:
+                by_key.setdefault(row.root_cause_key, []).append(row)
+
+        violations: list[str] = []
+        for key, rows in sorted(by_key.items()):
+            severities = sorted({row.severity for row in rows})
+            if len(severities) > 1:
+                detail = ", ".join(
+                    f"{row.id}={row.severity}" for row in sorted(rows, key=lambda r: r.id)
+                )
+                violations.append(
+                    f"root cause {key} carries contradictory severities ({', '.join(severities)}): "
+                    f"{detail}"
+                )
+        return violations
+
+    @staticmethod
+    def _check_critic_version_drift(runs: list[CriticRunRow]) -> list[str]:
+        """Check that one critic id does not run under two different rule versions.
+
+        SPEC §5.6 requires every run to record the critic version so a result can be attributed
+        to the rule that produced it. Two versions for one id means that attribution is broken:
+        a run recorded last week and a run recorded today were made by different rules, and a
+        reader comparing them is comparing two different critics.
+        """
+
+        by_critic: dict[str, list[CriticRunRow]] = {}
+        for run in runs:
+            by_critic.setdefault(run.critic_id, []).append(run)
+
+        violations: list[str] = []
+        for critic_id, rows in sorted(by_critic.items()):
+            versions = sorted(
+                {run.critic_version.strip() for run in rows if run.critic_version.strip()}
+            )
+            if len(versions) > 1:
+                violations.append(
+                    f"critic {critic_id} ran under {len(versions)} different critic versions "
+                    f"({', '.join(versions)}): recorded results cannot be attributed to one rule"
+                )
+        return violations
+
+    @staticmethod
+    def _check_judge_drift(runs: list[CriticRunRow]) -> list[str]:
+        """Check that one judge does not run under two different configurations.
+
+        For a model-backed critic the tuple is ``(model_provider, model_version,
+        prompt_version)``; for a deterministic critic it is ``rule_version``. A judge that
+        drifts changes what it means for its output to be "the same critic", so a finding
+        raised under one configuration cannot be compared with a finding raised under another.
+
+        A field that is empty on every run of a critic is not drift — it is simply not recorded
+        — so the comparison is over the configurations that were actually used, and a critic
+        that records no provenance at all is reported by check 4 rather than here.
+        """
+
+        def _config(run: CriticRunRow) -> tuple[str, ...] | None:
+            parts: tuple[str | None, ...]
+            if run.critic_type == CriticType.LLM.value:
+                parts = (run.model_provider, run.model_version, run.prompt_version)
+            else:
+                parts = (run.rule_version,)
+            present = tuple(part.strip() for part in parts if part and part.strip())
+            return present or None
+
+        by_critic: dict[str, list[CriticRunRow]] = {}
+        for run in runs:
+            by_critic.setdefault(run.critic_id, []).append(run)
+
+        violations: list[str] = []
+        for critic_id, rows in sorted(by_critic.items()):
+            configs = sorted({config for config in (_config(run) for run in rows) if config})
+            if len(configs) > 1:
+                rendered = "; ".join("|".join(config) for config in configs)
+                first = rows[0]
+                kind = (
+                    "judge configuration"
+                    if first.critic_type == CriticType.LLM.value
+                    else "rule version"
+                )
+                violations.append(
+                    f"critic {critic_id} ran under {len(configs)} different {kind}s "
+                    f"({rendered}): its output is not comparable across those runs"
+                )
         return violations
 
     @staticmethod
@@ -355,9 +569,11 @@ def check_finding_consistency(session: Session, finding_id: str) -> list[str]:
     design: a self-consistency violation *anywhere* undermines trust in every
     confirmed finding. The lifecycle **gate** is narrower, because a gate has to be
     answerable to the caller -- it reports why *this* finding may not be confirmed.
-    It runs the same three check helpers against one row, plus the audit-chain check,
+    It runs the same check helpers against one row, plus the audit-chain check,
     which is inherently store-global (a broken chain anywhere breaks the evidence for
-    every record).
+    every record). The cross-row checks (duplicate root causes, contradictory
+    severities, version drift) need the whole table to mean anything, so a single-row
+    call reports nothing for them by construction rather than passing silently.
 
     Returns the violation list; empty means the finding passes. This is the function
     the lifecycle gate calls, so scenario 24 ("every confirmed finding passes the NYX
@@ -371,9 +587,11 @@ def check_finding_consistency(session: Session, finding_id: str) -> list[str]:
     runs = list(session.scalars(select(CriticRunRow).order_by(CriticRunRow.id)))
     audits = list(session.scalars(select(AuditRow).order_by(AuditRow.sequence)))
     evidence_ids = set(session.scalars(select(EvidenceRow.id)))
+    observation_ids = set(session.scalars(select(ObservationRow.id)))
 
     violations: list[str] = []
     violations.extend(NyxSelfConsistencyCritic._check_audit_chain(audits))
     violations.extend(NyxSelfConsistencyCritic._check_findings([row], runs, evidence_ids))
+    violations.extend(NyxSelfConsistencyCritic._check_observation_refs([row], observation_ids))
     violations.extend(NyxSelfConsistencyCritic._check_transitions([row], audits))
     return violations

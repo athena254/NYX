@@ -16,18 +16,24 @@ from nyx.critics.c008_unsupported_certainty import (
     UnsupportedCertaintyCritic,
 )
 from nyx.critics.context import build_context
-from nyx.domain.base import Scope
+from nyx.domain.base import PrincipalRef, Scope
 from nyx.domain.claims import Claim
 from nyx.domain.enums import (
     ClaimType,
     CriticResultStatus,
+    Environment,
     EvidenceKind,
     FindingCategory,
     IntegrityMethod,
+    PrincipalKind,
+    ProbeKind,
+    ProbeOutcome,
     Sensitivity,
+    VerificationStrength,
 )
 from nyx.domain.events import Event
 from nyx.domain.evidence import EvidenceItem
+from nyx.domain.observation import Observation
 
 _NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
 
@@ -163,3 +169,134 @@ def test_universal_wording_without_evidence_no_finding() -> None:
     result = critic.run(context)
 
     assert result.result is CriticResultStatus.NO_FINDING
+
+
+# ---------------------------------------------------------------------------
+# RULE 3: a stated confidence above the ceiling its support can carry.
+# ---------------------------------------------------------------------------
+
+
+def _claim_id(statement: str, claim_id: str = "clm_c008_test") -> Claim:
+    claim = _claim(statement)
+    claim.id = claim_id
+    return claim
+
+
+def _observation(
+    *,
+    strength: VerificationStrength = VerificationStrength.INDEPENDENTLY_OBSERVED_END_STATE,
+    claim_id: str = "clm_c008_test",
+    observation_id: str = "obs_c008_test",
+) -> Observation:
+    return Observation(
+        id=observation_id,
+        probe_id="probe_state_check",
+        probe_version="1.0.0",
+        subject="sys_c008_test",
+        subject_version="abc123",
+        collected_at=_NOW,
+        collector=PrincipalRef(id="probe_state_check", kind=PrincipalKind.TOOL),
+        method=ProbeKind.STATE_CHECK,
+        result=ProbeOutcome.OBSERVED,
+        environment=Environment.STAGING,
+        read_only=True,
+        verification_strength=strength,
+        relevance_to_claim=claim_id,
+    )
+
+
+def _run_rule3(
+    statement: str,
+    *,
+    evidence: list[EvidenceItem] | None = None,
+    observations: list[Observation] | None = None,
+):
+    """Run RULE 3 with the claim linked to whatever support the test supplies."""
+
+    event = _event()
+    event.payload = {"confidence": 0}
+    context = build_context(
+        target_event=event,
+        linked_claim=_claim_id(statement),
+        linked_evidence=evidence if evidence is not None else [_evidence()],
+        observations=observations or [],
+        now=_NOW,
+    )
+    return UnsupportedCertaintyCritic().run(context)
+
+
+def test_confidence_above_the_self_reported_ceiling_fires() -> None:
+    """98% claimed with only the claimant's own report behind it."""
+
+    result = _run_rule3("The migration is 98% complete and safe to ship.")
+
+    assert result.result is CriticResultStatus.FINDING
+    assert "98" in result.proposition
+    assert "self_reported" in " ".join(result.observations)
+
+
+def test_confidence_exactly_at_the_ceiling_passes() -> None:
+    """Near miss: 50% against `self_reported` is at the ceiling, not above it."""
+
+    result = _run_rule3("The migration is 50% complete.")
+
+    assert result.result is CriticResultStatus.NO_FINDING
+
+
+def test_confidence_below_the_ceiling_passes() -> None:
+    result = _run_rule3("The migration is 20% complete.")
+
+    assert result.result is CriticResultStatus.NO_FINDING
+
+
+def test_claim_with_no_stated_confidence_is_not_assessed() -> None:
+    """RULE 3 has nothing to compare when the claim states no number."""
+
+    result = _run_rule3("The migration is underway.")
+
+    assert result.result is CriticResultStatus.NO_FINDING
+
+
+def test_stronger_support_raises_the_ceiling() -> None:
+    """An end-state observation lifts the ceiling, so the same number now passes."""
+
+    result = _run_rule3(
+        "The migration is 98% complete and safe to ship.",
+        observations=[_observation(strength=VerificationStrength.INDEPENDENTLY_OBSERVED_END_STATE)],
+    )
+
+    assert result.result is CriticResultStatus.NO_FINDING
+
+
+def test_structural_confidence_field_is_read() -> None:
+    """A producer that records the number structurally is read too."""
+
+    event = _event()
+    event.payload = {"confidence": 99}
+    context = build_context(
+        target_event=event,
+        linked_claim=_claim_id("The migration is complete."),
+        linked_evidence=[],
+        observations=[],
+        now=_NOW,
+    )
+
+    result = UnsupportedCertaintyCritic().run(context)
+
+    assert result.result is CriticResultStatus.FINDING
+
+
+def test_unlinked_observation_does_not_back_the_claim() -> None:
+    """A strong observation gathered for another claim is not support for this one."""
+
+    result = _run_rule3(
+        "The migration is 98% complete and safe to ship.",
+        observations=[
+            _observation(
+                strength=VerificationStrength.INDEPENDENTLY_OBSERVED_END_STATE,
+                claim_id="clm_some_other_claim",
+            )
+        ],
+    )
+
+    assert result.result is CriticResultStatus.FINDING

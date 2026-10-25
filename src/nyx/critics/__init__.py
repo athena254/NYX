@@ -73,20 +73,37 @@ def register_storage_backed(session_factory: SessionFactory) -> None:
 
 
 def register_ground_truth(settings: Settings) -> bool:
-    """Switch C-001 to the strength rule when ``require_independent_verification`` is set.
+    """Switch the critics with a stronger ground-truth rule on, when their flag is set.
 
     Re-registration replaces the pack's instance, so this must run **before** any critic runs in
-    the process. It returns whether the stronger rule is active, so the caller can log the state
+    the process. It returns whether any stronger rule is active, so the caller can log the state
     rather than discover it from behaviour.
 
-    With the flag off this is a no-op and C-001 keeps its evidence-only behaviour, which is what
-    makes "flags off equals current behaviour" testable rather than aspirational.
+    With every flag off this is a no-op and each critic keeps its pre-ground-truth behaviour,
+    which is what makes "flags off equals current behaviour" testable rather than aspirational.
+    Each flag is independent: a deployment can adopt C-001's rule without adopting C-006's.
+
+    The authorisation lookup for C-006 is deliberately *not* wired here. It needs a store, and
+    this module must not open one: a registration function that constructs a session is a
+    function that can outlive the request that built it. C-006's stronger rule therefore runs
+    only where a caller that owns a session passes the lookup in explicitly.
     """
 
-    if not settings.require_independent_verification:
-        return False
-    register(CompletionVsVerificationCritic(require_strength=True))
-    return True
+    active = False
+
+    if settings.require_independent_verification:
+        register(CompletionVsVerificationCritic(require_strength=True))
+        active = True
+    if settings.require_coverage_scope:
+        register(EvidenceFreshnessCritic(require_coverage_scope=True))
+        active = True
+    if settings.require_verifiable_origin:
+        register(ProvenanceGapCritic(require_verifiable_origin=True))
+        active = True
+    if settings.require_valid_authorisation:
+        register(RiskyActionWithoutAuthorisationCritic(require_valid_authorisation=True))
+        active = True
+    return active
 
 
 __all__ = [

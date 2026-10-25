@@ -18,8 +18,16 @@ from nyx.critics.c006_risky_action_without_authorisation import (
     RiskyActionWithoutAuthorisationCritic,
 )
 from nyx.critics.context import build_context
+from nyx.domain.authorisation import Authorisation
+from nyx.domain.base import PrincipalRef
 from nyx.domain.canonical import content_hash
-from nyx.domain.enums import CriticResultStatus, EvidenceKind
+from nyx.domain.enums import (
+    CriticResultStatus,
+    Environment,
+    EvidenceKind,
+    PrincipalKind,
+    RiskAction,
+)
 from nyx.domain.events import Event
 from nyx.domain.evidence import EvidenceItem
 
@@ -154,3 +162,179 @@ def test_blank_approval_ref_does_not_count_as_approval() -> None:
     result = _run({"action": "deploy", "approval_ref": "   "})
 
     assert result.result is CriticResultStatus.FINDING
+
+
+# ---------------------------------------------------------------------------
+# RULE 2: an approval reference is not an authorisation.
+# ---------------------------------------------------------------------------
+
+
+def _event_with_actor(payload: dict[str, Any], actor_id: str = "principal_operator") -> Event:
+    event = _event(payload)
+    event.actor = PrincipalRef(id=actor_id, kind=PrincipalKind.HUMAN)
+    return event
+
+
+def _authorisation(
+    *,
+    record_id: str = "aut_1",
+    approver_id: str = "principal_approver",
+    actor_id: str = "svc_deployer",
+    scope_ref: str = "demo",
+    expires_at: str | None = None,
+) -> Authorisation:
+    """A stored authorisation record, with a legitimate approver distinct from its actor."""
+
+    return Authorisation(
+        id=record_id,
+        action="action.deploy",
+        risk_action=RiskAction.DEPLOY,
+        actor=PrincipalRef(id=actor_id, kind=PrincipalKind.SERVICE),
+        approver=PrincipalRef(id=approver_id, kind=PrincipalKind.HUMAN),
+        environment=Environment.STAGING,
+        scope_ref=scope_ref,
+        approved_at="2026-10-19T09:00:00Z",
+        expires_at=expires_at,
+    )
+
+
+def _run_with_authorisation(
+    payload: dict[str, Any],
+    records: dict[str, Authorisation],
+    *,
+    require: bool = True,
+):
+    context = build_context(
+        target_event=_event_with_actor(payload),
+        linked_claim=None,
+        related_claims=[],
+        linked_evidence=[],
+        now=None,
+    )
+    critic = RiskyActionWithoutAuthorisationCritic(
+        require_valid_authorisation=require,
+        authorisation_lookup=records.get,
+    )
+    return critic.run(context)
+
+
+def test_valid_authorisation_passes_the_stronger_rule() -> None:
+    result = _run_with_authorisation(
+        {"action": "deploy", "artifact": "demo", "approval_ref": "aut_1"},
+        {"aut_1": _authorisation()},
+    )
+
+    assert result.result is CriticResultStatus.NO_FINDING
+
+
+def test_expired_authorisation_is_a_finding() -> None:
+    """A record that lapsed before the assessment time does not authorise the action."""
+
+    result = _run_with_authorisation(
+        {"action": "deploy", "artifact": "demo", "approval_ref": "aut_1"},
+        {
+            "aut_1": _authorisation(
+                expires_at="2026-10-19T09:30:00Z",
+            )
+        },
+    )
+
+    assert result.result is CriticResultStatus.FINDING
+    output_text = " ".join(result.observations).lower()
+    assert "expired" in output_text
+
+
+def test_self_approval_is_a_finding() -> None:
+    """The approver being the actor is not an authorisation, even though the record is valid.
+
+    The stored record is well-formed -- its own ``actor`` field names the service that was
+    authorised. The finding is that the *approver* is the same principal who performed the
+    action, which is exactly the case a present ``approval_ref`` cannot express.
+    """
+
+    result = _run_with_authorisation(
+        {"action": "deploy", "artifact": "demo", "approval_ref": "aut_1"},
+        {
+            "aut_1": _authorisation(
+                approver_id="principal_operator",
+                actor_id="svc_deployer",
+            )
+        },
+    )
+
+    assert result.result is CriticResultStatus.FINDING
+    output_text = " ".join(result.observations).lower()
+    assert "approver" in output_text
+
+
+def test_scope_mismatch_is_a_finding() -> None:
+    """An approval scoped to another artifact does not cover this action."""
+
+    result = _run_with_authorisation(
+        {"action": "deploy", "artifact": "demo", "approval_ref": "aut_1"},
+        {"aut_1": _authorisation(scope_ref="other-service")},
+    )
+
+    assert result.result is CriticResultStatus.FINDING
+    output_text = " ".join(result.observations).lower()
+    assert "scope" in output_text
+
+
+def test_unresolvable_reference_abstains_rather_than_passing() -> None:
+    """A reference to a record NYX does not hold is unknown, not an approval or a refusal."""
+
+    result = _run_with_authorisation(
+        {"action": "deploy", "artifact": "demo", "approval_ref": "aut_missing"},
+        {},
+    )
+
+    assert result.result is CriticResultStatus.NO_FINDING
+    assert "cannot" in result.rationale.lower() or "unknown" in result.rationale.lower()
+
+
+def test_no_lookup_supplied_abstains() -> None:
+    context = build_context(
+        target_event=_event_with_actor(
+            {"action": "deploy", "artifact": "demo", "approval_ref": "aut_1"}
+        ),
+        linked_claim=None,
+        related_claims=[],
+        linked_evidence=[],
+        now=None,
+    )
+    critic = RiskyActionWithoutAuthorisationCritic(require_valid_authorisation=True)
+
+    result = critic.run(context)
+
+    assert result.result is CriticResultStatus.NO_FINDING
+
+
+def test_flag_off_still_accepts_a_present_reference() -> None:
+    """Regression guard: the 1.0.0 behaviour is unchanged when RULE 2 is off."""
+
+    result = _run_with_authorisation(
+        {"action": "deploy", "artifact": "demo", "approval_ref": "aut_expired"},
+        {"aut_expired": _authorisation(expires_at="2026-01-01T00:00:00Z")},
+        require=False,
+    )
+
+    assert result.result is CriticResultStatus.NO_FINDING
+
+
+def test_no_approval_reference_still_fires_with_the_flag_on() -> None:
+    """RULE 2 does not weaken RULE 1: an absent reference is still a finding."""
+
+    result = _run_with_authorisation(
+        {"action": "deploy", "artifact": "demo"}, {"aut_1": _authorisation()}
+    )
+
+    assert result.result is CriticResultStatus.FINDING
+    assert result.root_cause_key is not None
+
+
+def test_risk_category_is_reported() -> None:
+    result = _run_with_authorisation({"action": "delete", "artifact": "demo"}, {})
+
+    assert result.result is CriticResultStatus.FINDING
+    observations_text = " ".join(result.observations)
+    assert "delete" in observations_text

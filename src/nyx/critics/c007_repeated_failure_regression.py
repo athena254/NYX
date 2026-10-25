@@ -10,6 +10,21 @@ A "defined test" is identified by (system, artifact, evidence kind, normalised t
 evidence model carries no structured test identifier, so the title is the only name
 available. That is a documented limitation, not a hidden assumption.
 
+Three rules, decided in this order:
+
+* RULE 1 (pass then fail): a defined test has a readable passing outcome followed by a later
+  readable failing outcome. This is the 1.0.0 behaviour, unchanged.
+* RULE 2 (flaky vs regression): the pair is classified. Two runs of the same test at the
+  **same** declared commit and environment that disagree are *flaky* — an intermittent
+  failure, not a regression. A failure that is new after a change of commit is a *regression*.
+  The classification is stated in the finding rather than left to the reader, and recorded as
+  ``Reproducibility.FLAKY`` or ``Reproducibility.DETERMINISTIC``.
+* RULE 3 (recurrence escalation): failures are clustered by a normalised *failure signature*
+  (the run's own title and description, lowercased, whitespace-collapsed, punctuation
+  stripped) over a configurable window. When one signature recurs at least
+  ``recurrence_threshold`` times inside the window, the severity is escalated, because a
+  failure that keeps coming back is a stronger signal than one that appeared once.
+
 The recorded outcome is read from the evidence title/description with explicit word-boundary
 markers — the same documented limitation as C-001.
 
@@ -20,27 +35,45 @@ find something.
 
 from __future__ import annotations
 
+import hashlib
 import re
+from datetime import timedelta
 
 from nyx.critics.base import CriticResult, CriticScope
 from nyx.critics.context import CriticContext
-from nyx.domain.base import Scope
+from nyx.domain.base import Digest, Scope
 from nyx.domain.enums import (
     CriticResultStatus,
     CriticType,
     EvidenceKind,
     FindingCategory,
+    Reproducibility,
     Severity,
 )
 from nyx.domain.evidence import EvidenceItem
 
 CRITIC_ID = "c007-repeated-failure-regression"
-CRITIC_VERSION = "1.0.0"
+CRITIC_VERSION = "1.1.0"
 
 _VERIFICATION_KINDS = {EvidenceKind.TEST_RESULT, EvidenceKind.CI_TEST_RESULT}
 
 _SUCCESS_MARKER = re.compile(r"\bpass(?:es|ed|ing)?\b|\bgreen\b")
 _FAILURE_MARKER = re.compile(r"\bfail(?:s|ed|ing|ure)?\b|\bbroken\b|\bred\b")
+
+#: Characters dropped when building a failure signature. A signature is a normalised form of
+#: what the evidence actually declares, so two runs of the same failure described with
+#: different punctuation or spacing still cluster together.
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+
+#: Classification labels reported in the finding.
+FLAKY = "flaky"
+REGRESSION = "regression"
+
+#: Base severity for each classification, before recurrence escalation.
+_BASE_SEVERITY = {FLAKY: Severity.MEDIUM, REGRESSION: Severity.HIGH}
+
+#: Severity a recurring cluster is escalated to, for either classification.
+_ESCALATED_SEVERITY = Severity.CRITICAL
 
 
 def _recorded_outcome(evidence: EvidenceItem) -> str | None:
@@ -68,6 +101,75 @@ def _test_key(item: EvidenceItem) -> tuple[str, str, EvidenceKind, str]:
         scope.artifact if scope and scope.artifact else "",
         item.kind,
         " ".join(item.title.lower().split()),
+    )
+
+
+def _failure_signature(item: EvidenceItem) -> str:
+    """Normalise a failing run into the signature its recurrence is clustered by.
+
+    The signature is derived from what the evidence *declares* — its title and description —
+    because the evidence model has no structured error field. Lowercasing, collapsing
+    whitespace and dropping punctuation means two runs of the same failure described with
+    different wording or spacing still land in one cluster. A run that declares nothing
+    readable produces an empty signature and is never clustered, so an unreadable record is
+    not silently merged with a readable one.
+    """
+
+    text = f"{item.title} {item.description}".lower()
+    return _NON_ALNUM.sub(" ", text).strip()
+
+
+def _signature_key(signature: str) -> Digest:
+    """The stable ``root_cause_key`` for one failure signature."""
+
+    return f"sha256:{hashlib.sha256(signature.encode('utf-8')).hexdigest()}"
+
+
+def _classify(passing: EvidenceItem, failing: EvidenceItem) -> str:
+    """Classify a pass-then-fail pair as flaky or a regression.
+
+    Only *definitely declared* scope decides it, and only when both runs declare the field:
+
+    * same commit **and** same environment -> ``flaky``. The artifact did not change and the
+      environment did not change, so the disagreement is an intermittent failure rather than a
+      regression introduced by a change.
+    * different declared commits -> ``regression``. The failure is new after a change.
+
+    A pair that declares neither, or declares only one side of a field, cannot be classified
+    on this evidence. It is reported as a regression with the scope difference as a CONFOUNDER
+    — the 1.0.0 behaviour — rather than guessed into either bucket.
+    """
+
+    p_scope = passing.scope
+    f_scope = failing.scope
+    if p_scope is None or f_scope is None:
+        return REGRESSION
+    if p_scope.commit and f_scope.commit and p_scope.commit != f_scope.commit:
+        return REGRESSION
+    same_commit = bool(p_scope.commit) and p_scope.commit == f_scope.commit
+    same_environment = bool(p_scope.environment) and p_scope.environment == f_scope.environment
+    if same_commit and same_environment:
+        return FLAKY
+    return REGRESSION
+
+
+def _recurrence(failures: list[EvidenceItem], signature: str, *, window: timedelta) -> int:
+    """Count the runs sharing ``signature`` inside ``window`` ending at the latest failure.
+
+    The window is measured back from the latest failure, so a cluster answers "how often did
+    this failure recur recently" rather than "how many times has it ever happened". Runs
+    outside the window are excluded, which is what keeps a long-dormant failure from looking
+    like an ongoing one.
+    """
+
+    if not signature:
+        return 0
+    latest = max(item.captured_at for item in failures)
+    earliest = latest - window
+    return sum(
+        1
+        for item in failures
+        if _failure_signature(item) == signature and earliest <= item.captured_at <= latest
     )
 
 
@@ -137,27 +239,51 @@ def _no_finding(proposition: str, rationale: str, scope: Scope) -> CriticResult:
 
 
 class RepeatedFailureRegressionCritic:
-    """Detect a defined test that passed and now fails, surfacing confounders."""
+    """Detect a defined test that passed and now fails, classifying and clustering it."""
 
     critic_id = CRITIC_ID
     critic_version = CRITIC_VERSION
     description = (
         "Detect a previously passing verification check that now fails for the same defined "
-        "test, reporting commit and environment differences as confounders rather than "
-        "hiding them."
+        "test; classify the pair as flaky or a regression, report commit and environment "
+        "differences as confounders rather than hiding them, and escalate severity when the "
+        "same failure signature recurs."
     )
     scope = CriticScope(
         can_assess=[
             "verification runs (test_result, ci_test_result) linked to the event or claim",
             "defined tests identified by system, artifact, kind, and title",
+            "whether a pass-then-fail pair shares a declared commit and environment, which is "
+            "what separates flaky from regression",
+            "how often a normalised failure signature recurs inside a configurable window",
         ],
         cannot_assess=[
             "runs whose recorded outcome cannot be read from title or description",
             "different tests, artifacts, or systems",
             "the cause of a failure once a confounder is present",
+            "the *reason* a failure is intermittent: recurrence is counted, not explained",
+            "failures whose declared signature is empty, which are never clustered",
         ],
     )
     critic_type = CriticType.DETERMINISTIC
+
+    def __init__(
+        self,
+        *,
+        window_days: float = 30.0,
+        recurrence_threshold: int = 3,
+    ) -> None:
+        """Construct the critic.
+
+        ``window_days`` bounds how far back a recurrence is counted, measured from the latest
+        failure. ``recurrence_threshold`` is the number of failures sharing one signature
+        inside that window at which severity is escalated. Both are constructor arguments so a
+        deployment can retune them without a code change; the defaults are conservative, and
+        with a threshold above any single-run count the 1.0.0 severity behaviour is preserved.
+        """
+
+        self.window_days = window_days
+        self.recurrence_threshold = recurrence_threshold
 
     def run(self, context: CriticContext) -> CriticResult:
         runs = [
@@ -192,7 +318,7 @@ class RepeatedFailureRegressionCritic:
             ]
             if not prior_passes:
                 continue
-            return self._regression(prior_passes[-1], latest_failure, context)
+            return self._regression(prior_passes[-1], latest_failure, failures, context)
 
         return _no_finding(
             "No linked verification run passes and then fails for the same defined test.",
@@ -203,25 +329,55 @@ class RepeatedFailureRegressionCritic:
         )
 
     def _regression(
-        self, passing: EvidenceItem, failing: EvidenceItem, context: CriticContext
+        self,
+        passing: EvidenceItem,
+        failing: EvidenceItem,
+        all_failures: list[EvidenceItem],
+        context: CriticContext,
     ) -> CriticResult:
-        """Build the regression result, reporting every confounder it can prove."""
+        """Build the regression result, classifying it and reporting every confounder."""
 
         title = " ".join(failing.title.lower().split())
         artifact = _artifact_name(failing)
         confounders = _confounders(passing, failing)
+        classification = _classify(passing, failing)
+        signature = _failure_signature(failing)
+        recurrences = _recurrence(all_failures, signature, window=timedelta(days=self.window_days))
+        escalated = recurrences >= self.recurrence_threshold
+        severity = _ESCALATED_SEVERITY if escalated else _BASE_SEVERITY[classification]
+        reproducibility = (
+            Reproducibility.FLAKY if classification == FLAKY else (Reproducibility.DETERMINISTIC)
+        )
+
         observations = [
             f"Evidence {passing.id} records a passing outcome for '{title}' "
             f"({_scope_text(passing)}), captured at {passing.captured_at}.",
             f"Evidence {failing.id} records a failing outcome for '{title}' "
             f"({_scope_text(failing)}), captured at {failing.captured_at}.",
+            f"Classification: {classification}.",
         ]
         limitations = [
             "Outcomes are read from evidence titles/descriptions with explicit markers; "
             "nuanced or structured results may be missed (same limitation as C-001).",
+            "Flaky vs regression is decided only by definitely-declared scope fields; an "
+            "undeclared commit or environment is a provenance gap (the provenance-gap "
+            "critic's finding), not a classification input.",
         ]
         if confounders:
             observations.extend(f"CONFOUNDER: {text}" for text in confounders)
+        if signature:
+            observations.append(
+                f"The failure signature {signature!r} occurred {recurrences} time(s) inside "
+                f"the last {self.window_days:g} day(s); the escalation threshold is "
+                f"{self.recurrence_threshold}."
+            )
+            limitations.append(
+                "The failure signature is a normalised form of the run's own title and "
+                "description, so two different failures described in the same words are "
+                "counted as one cluster."
+            )
+
+        if confounders:
             proposition = (
                 f"Defined test '{title}' for artifact {artifact} passed in {passing.id} and "
                 f"later fails in {failing.id}, but the runs are not comparable: "
@@ -238,6 +394,27 @@ class RepeatedFailureRegressionCritic:
                 f"followed by a failing record ({failing.id}), but the records were captured "
                 "under different declared scope. The regression is real only if the scope "
                 "difference is ruled out; until then the confounder stands."
+            )
+        elif classification == FLAKY:
+            observations.append(
+                "Both runs were captured under the same declared commit and environment, so "
+                "the failure is intermittent rather than introduced by a change."
+            )
+            proposition = (
+                f"Defined test '{title}' for artifact {artifact} passed in {passing.id} and "
+                f"fails in {failing.id} under the same declared commit and environment: a "
+                f"flaky test, not a regression."
+            )
+            limitations.append(
+                "Recurrence is counted, not explained: this critic reports that the failure "
+                "repeats, not why."
+            )
+            rationale = (
+                f"The same defined test '{title}' for artifact {artifact} recorded a passing "
+                f"outcome ({passing.id}) and later a failing outcome ({failing.id}) under the "
+                "same declared commit and environment. The artifact did not change and the "
+                "environment did not change, so the disagreement is an intermittent failure "
+                "rather than a regression introduced by a change."
             )
         else:
             observations.append(
@@ -258,6 +435,14 @@ class RepeatedFailureRegressionCritic:
                 "same declared commit and environment. The most likely explanation is a "
                 "regression in the defined test."
             )
+
+        if escalated:
+            limitations.append(
+                f"The failure signature recurred {recurrences} times inside the "
+                f"{self.window_days:g}-day window, at or above the escalation threshold of "
+                f"{self.recurrence_threshold}, so severity is escalated."
+            )
+
         return CriticResult(
             critic_id=CRITIC_ID,
             critic_version=CRITIC_VERSION,
@@ -273,12 +458,15 @@ class RepeatedFailureRegressionCritic:
             ),
             requires_human_review=True,
             category=FindingCategory.QUALITY_RISK,
-            severity=Severity.HIGH,
+            severity=severity,
             title=(
                 f"Repeated failure regression: '{title}' for {artifact}"
                 + (" (confounded)" if confounders else "")
+                + (f" ({classification})" if not confounders else "")
             ),
             summary=proposition,
+            root_cause_key=_signature_key(signature) if signature else None,
+            reproducibility=reproducibility,
             supporting_evidence_ids=[passing.id, failing.id],
             claim_ids=[context.linked_claim.id] if context.linked_claim else [],
             event_ids=[context.target_event.id],
