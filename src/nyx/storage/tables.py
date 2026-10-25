@@ -269,6 +269,14 @@ class FindingRow(Base):
     dedupe_key: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     dedupe_rationale: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     duplicate_of: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    # Ground-truth extensions (additive, all nullable). See ``Finding`` for what each is for and
+    # why observation ids are a separate column from ``evidence_ids``.
+    observation_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    root_cause_key: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    subject_version: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
+    reproducibility: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    verification_strength: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    remediation_hint: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )

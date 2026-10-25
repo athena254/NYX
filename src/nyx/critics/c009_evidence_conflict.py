@@ -14,6 +14,10 @@ quiet, as do records for different tests or for scopes that are not definitely c
 A ``no_finding`` result means only that this critic found no determinable conflict within
 its declared scope; it is never a statement that the evidence is consistent everywhere, or
 that no other critic could find something.
+
+**Shared root cause.** C-002 compares *claims*; this critic compares *evidence*. The boundary is
+deliberate and unchanged. Both key their findings on the same ``root_cause_key`` from
+:mod:`nyx.critics.claim_graph`, so one underlying conflict cannot raise two findings.
 """
 
 from __future__ import annotations
@@ -29,7 +33,9 @@ from nyx.domain.enums import (
     EvidenceKind,
     FindingCategory,
     Severity,
+    VerificationStrength,
 )
+from nyx.critics.claim_graph import outcome_fact_key
 from nyx.domain.evidence import EvidenceItem
 
 CRITIC_ID = "c009-evidence-conflict"
@@ -58,7 +64,11 @@ def _recorded_outcome(evidence: EvidenceItem) -> str | None:
 
 
 def _test_key(item: EvidenceItem) -> tuple[str, str, EvidenceKind, str]:
-    """Group key for "the same defined test": system, artifact, kind, normalised title."""
+    """Group key for "the same defined test": system, artifact, kind, normalised title.
+
+    Unchanged, and deliberately so: C-007 uses the same grouping, and three critics inventing
+    three names for one defined test is how a conflict stops being comparable across critics.
+    """
 
     scope = item.scope
     return (
@@ -239,6 +249,11 @@ class EvidenceConflictCritic:
             ),
             supporting_evidence_ids=[passing.id],
             counterevidence_ids=[failing.id],
+            # Same predicate and subject as C-002, so a claim-level contradiction and an
+            # evidence-level conflict about one test are one root cause.
+            root_cause_key=outcome_fact_key(predicate="outcome", scope=failing.scope).to_key(),
+            subject_version=failing.scope.commit if failing.scope else None,
+            verification_strength=VerificationStrength.SELF_REPORTED,
             claim_ids=[context.linked_claim.id] if context.linked_claim else [],
             event_ids=[context.target_event.id],
             affected_system_ids=[context.scope.system_id],

@@ -104,6 +104,19 @@ class EvidenceKind(StrEnum):
     OTHER = "other"
 
 
+class Reproducibility(StrEnum):
+    """Whether a finding reproduces, and if so how reliably.
+
+    ``unreproduced`` is not a failure of the check: it is the honest answer when the evidence
+    that raised the finding cannot be replayed. A finding that is unreproduced is a weaker
+    accusation than one that replays deterministically, and the distinction is queryable.
+    """
+
+    DETERMINISTIC = "deterministic"
+    FLAKY = "flaky"
+    UNREPRODUCED = "unreproduced"
+
+
 class VerificationStrength(StrEnum):
     """How strongly a proposition is supported by what backs it.
 

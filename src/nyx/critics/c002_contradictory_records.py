@@ -9,6 +9,11 @@ commit is not a contradiction of a success record for the current one.
 Contradiction is judged from explicit success/failure markers in the claim statements with
 word boundaries. Mixed statements (both markers, e.g. "tests pass but the build fails") are
 not a clean signal and are skipped rather than guessed at.
+
+**Shared root cause.** C-009 compares *evidence* for the same defined test; this critic compares
+*claims*. The boundary is deliberate and unchanged. What changed is that both now key their
+findings on the same ``root_cause_key`` from :mod:`nyx.critics.claim_graph`, so one underlying
+conflict cannot raise two findings under two identities.
 """
 
 from __future__ import annotations
@@ -19,7 +24,14 @@ from nyx.critics.base import CriticResult, CriticScope
 from nyx.critics.context import CriticContext
 from nyx.domain.base import Scope
 from nyx.domain.claims import Claim
-from nyx.domain.enums import CriticResultStatus, CriticType, FindingCategory, Severity
+from nyx.critics.claim_graph import outcome_fact_key
+from nyx.domain.enums import (
+    CriticResultStatus,
+    CriticType,
+    FindingCategory,
+    Severity,
+    VerificationStrength,
+)
 
 CRITIC_ID = "c002-contradictory-records"
 CRITIC_VERSION = "1.0.0"
@@ -153,6 +165,7 @@ class ContradictoryRecordsCritic:
             success_claim, failure_claim = (
                 (claim, other) if target_stance == "success" else (other, claim)
             )
+            root_cause_key = outcome_fact_key(predicate="outcome", scope=claim.scope).to_key()
             return CriticResult(
                 critic_id=CRITIC_ID,
                 critic_version=CRITIC_VERSION,
@@ -205,6 +218,11 @@ class ContradictoryRecordsCritic:
                 claim_ids=[claim.id, other.id],
                 event_ids=[context.target_event.id],
                 affected_system_ids=[claim.claimant_system_id],
+                # The shared defect identity. C-009 keys on the same predicate and subject, so
+                # the same underlying conflict cannot raise two findings under two keys.
+                root_cause_key=root_cause_key,
+                subject_version=claim.scope.commit,
+                verification_strength=VerificationStrength.SELF_REPORTED,
             )
 
         return _no_finding(

@@ -49,7 +49,7 @@ from nyx.conversational.mcp_server import tool_names as mcp_tool_names
 from nyx.conversational.telegram.adapter import TelegramError
 from nyx.conversational.telegram.bot import TelegramBot
 from nyx.conversational.telegram.config import TelegramConfig
-from nyx.critics import register_storage_backed
+from nyx.critics import register_ground_truth, register_storage_backed
 from nyx.critics.llm_registration import register_llm_critic
 from nyx.critics.registry import CriticRegistryError, list_critics
 from nyx.disputes.service import (
@@ -219,6 +219,7 @@ def _finding_service() -> FindingService:
     # Keep the CLI's critic set identical to the API's: C-010 audits NYX's own store, so it
     # must be handed the same session factory the CLI just built.
     register_storage_backed(factory)
+    register_ground_truth(settings)
     register_llm_critic(settings)
     return FindingService(factory)
 
@@ -1758,6 +1759,7 @@ def _watch_cycle() -> tuple[WatchCycle, Engine]:
     # Keep the watcher's critic set identical to the API's and the CLI's: C-010 audits NYX's own
     # store, so it must be handed the same session factory the watcher just built.
     register_storage_backed(factory)
+    register_ground_truth(settings)
     register_llm_critic(settings)
     registry = build_adapter_registry(settings)
     cycle = WatchCycle(

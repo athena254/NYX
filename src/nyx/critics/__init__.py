@@ -41,6 +41,7 @@ from nyx.critics.registry import (
 )
 
 if TYPE_CHECKING:
+    from nyx.config import Settings
     from nyx.storage.db import SessionFactory
 
 register(CompletionVsVerificationCritic())
@@ -65,6 +66,23 @@ def register_storage_backed(session_factory: SessionFactory) -> None:
     register(NyxSelfConsistencyCritic(session_factory))
 
 
+def register_ground_truth(settings: Settings) -> bool:
+    """Switch C-001 to the strength rule when ``require_independent_verification`` is set.
+
+    Re-registration replaces the pack's instance, so this must run **before** any critic runs in
+    the process. It returns whether the stronger rule is active, so the caller can log the state
+    rather than discover it from behaviour.
+
+    With the flag off this is a no-op and C-001 keeps its evidence-only behaviour, which is what
+    makes "flags off equals current behaviour" testable rather than aspirational.
+    """
+
+    if not settings.require_independent_verification:
+        return False
+    register(CompletionVsVerificationCritic(require_strength=True))
+    return True
+
+
 __all__ = [
     "Critic",
     "CriticContext",
@@ -76,6 +94,7 @@ __all__ = [
     "get",
     "list_critics",
     "register",
+    "register_ground_truth",
     "register_storage_backed",
     "run_selected",
 ]

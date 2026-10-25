@@ -39,6 +39,7 @@ from nyx.findings.models import (
 )
 from nyx.storage.repositories.evidence import EvidenceRepository
 from nyx.storage.repositories.findings import FindingRepository
+from nyx.storage.repositories.observations import ObservationRepository
 
 
 class FindingCompositionError(ValueError):
@@ -70,6 +71,7 @@ def compose_finding(
             "can be composed."
         )
     _validate_evidence_references(session, result)
+    _validate_observation_references(session, result)
     _validate_category_requirements(result)
     _validate_inspectable(result)
 
@@ -115,6 +117,12 @@ def compose_finding(
         critic_runs=[run],
         status=status,
         dedupe_key=key,
+        observation_ids=list(result.observation_refs),
+        root_cause_key=result.root_cause_key,
+        subject_version=result.subject_version,
+        reproducibility=result.reproducibility,
+        verification_strength=result.verification_strength,
+        remediation_hint=result.remediation_hint,
     )
 
     original = find_original(session=session, key=key)
@@ -138,6 +146,29 @@ def _validate_evidence_references(session: Session, result: CriticResult) -> Non
         raise FindingCompositionError(
             f"critic {result.critic_id} referenced evidence IDs that do not exist: "
             f"{', '.join(unknown)}. A critic must reference persisted evidence ids."
+        )
+
+
+def _validate_observation_references(session: Session, result: CriticResult) -> None:
+    """Observation references must exist too.
+
+    The rule the brief states is that no finding may reference something that does not exist, and
+    an observation id is a reference like any other. The check is separate from the evidence check
+    because the two resolve against different tables, and a single combined message would hide
+    which kind of reference was invented.
+    """
+
+    if not result.observation_refs:
+        return
+    unknown = [
+        observation_id
+        for observation_id in result.observation_refs
+        if ObservationRepository(session).get(observation_id) is None
+    ]
+    if unknown:
+        raise FindingCompositionError(
+            f"critic {result.critic_id} referenced observation IDs that do not exist: "
+            f"{', '.join(unknown)}. A critic must reference persisted observation ids."
         )
 
 

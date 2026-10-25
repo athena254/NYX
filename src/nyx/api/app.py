@@ -27,7 +27,7 @@ from nyx.api.routes import (
 from nyx.auth.checker import ConfigBackedCapabilityChecker
 from nyx.auth.store import CapabilityStore
 from nyx.config import Settings
-from nyx.critics import register_storage_backed
+from nyx.critics import register_ground_truth, register_storage_backed
 from nyx.critics.llm_registration import register_llm_critic
 from nyx.disputes.verification import default_allowlist
 from nyx.findings.service import FindingService
@@ -93,6 +93,10 @@ def create_app(
     # C-010 audits NYX's own store, so it must be handed THIS session factory -- the one every
     # request writes through -- or it would inspect a different database than the live one.
     register_storage_backed(session_factory)
+
+    # The stronger C-001 rule is opt-in. Registered from the same settings the request path uses,
+    # so enabling it in one process and not another fails visibly here.
+    register_ground_truth(effective)
 
     # The optional model critic is registered from the same settings the request path uses, so
     # enabling it in one process and not another fails visibly here rather than silently

@@ -30,7 +30,9 @@ from nyx.domain.enums import (
     CriticType,
     FindingCategory,
     FindingStatus,
+    Reproducibility,
     Severity,
+    VerificationStrength,
 )
 from nyx.domain.ids import new_critic_run_id, new_finding_id
 
@@ -137,6 +139,16 @@ class Finding(NyxModel):
     dedupe_key: Digest | None = None
     dedupe_rationale: RationaleText | None = None
     duplicate_of: Identifier | None = None
+
+    # Ground-truth extensions. Additive and optional; see the note on ``CriticResult``. They are
+    # stored as columns rather than inside ``reasoning`` because each is something a reader or a
+    # critic filters on: "what did NYX observe here", "which defect is this", "at which version".
+    observation_ids: list[Identifier] = Field(default_factory=list, max_length=64)
+    root_cause_key: Digest | None = None
+    subject_version: Annotated[str, StringConstraints(min_length=1, max_length=256)] | None = None
+    reproducibility: Reproducibility | None = None
+    verification_strength: VerificationStrength | None = None
+    remediation_hint: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = None
 
     @model_validator(mode="after")
     def _scope_must_narrow_and_be_consistent(self) -> Self:

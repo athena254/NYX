@@ -12,16 +12,18 @@ service layer persists the run and composes any finding.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Annotated, Any, Protocol, runtime_checkable
 
-from pydantic import Field
+from pydantic import Field, StringConstraints
 
-from nyx.domain.base import Identifier, NyxModel, Scope
+from nyx.domain.base import Digest, Identifier, NyxModel, Scope
 from nyx.domain.enums import (
     CriticResultStatus,
     CriticType,
     FindingCategory,
+    Reproducibility,
     Severity,
+    VerificationStrength,
 )
 from nyx.findings.models import Confidence
 
@@ -75,6 +77,28 @@ class CriticResult(NyxModel):
     claim_ids: list[Identifier] = Field(default_factory=list, max_length=64)
     event_ids: list[Identifier] = Field(default_factory=list, max_length=256)
     confidence: Confidence | None = None
+
+    # Ground-truth extensions. All additive and all optional, so a critic that predates them
+    # remains valid. They exist so that a finding can say *what it rests on* and *how strongly*
+    # rather than only what it concluded:
+    #
+    # - observation_refs are the observations NYX gathered itself. They are kept out of
+    #   supporting_evidence_ids on purpose: a probe result and a producer's report are different
+    #   kinds of thing, and collapsing them is what lets a claim look verified when it is only
+    #   reported.
+    # - root_cause_key is the shared defect identity C-002 and C-009 key on, so one underlying
+    #   conflict cannot raise two findings.
+    # - subject_version is the commit/build/config hash the finding is about, so a finding about
+    #   an old version is visibly about an old version.
+    # - verification_strength is the strongest support behind the finding, on the shared enum.
+    # - reproducibility records whether it replays.
+    # - remediation_hint is advice, separate from the recommendation, so it can be short.
+    observation_refs: list[Identifier] = Field(default_factory=list, max_length=64)
+    root_cause_key: Digest | None = None
+    subject_version: Annotated[str, StringConstraints(min_length=1, max_length=256)] | None = None
+    reproducibility: Reproducibility | None = None
+    verification_strength: VerificationStrength | None = None
+    remediation_hint: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = None
 
     # SPEC §13 provenance. A deterministic critic leaves these null; a model critic records the
     # provider, model, and prompt-template version that produced the assessment, plus token usage

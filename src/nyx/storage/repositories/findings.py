@@ -44,6 +44,18 @@ class FindingRepository:
             dedupe_key=finding.dedupe_key,
             dedupe_rationale=finding.dedupe_rationale,
             duplicate_of=finding.duplicate_of,
+            observation_ids=list(finding.observation_ids),
+            root_cause_key=finding.root_cause_key,
+            subject_version=finding.subject_version,
+            reproducibility=(
+                None if finding.reproducibility is None else finding.reproducibility.value
+            ),
+            verification_strength=(
+                None
+                if finding.verification_strength is None
+                else finding.verification_strength.value
+            ),
+            remediation_hint=finding.remediation_hint,
             created_at=finding.created_at,
             updated_at=finding.updated_at,
         )
@@ -137,5 +149,11 @@ def _to_domain(session: Session, row: FindingRow) -> Finding:
             "dedupe_key": row.dedupe_key,
             "dedupe_rationale": row.dedupe_rationale,
             "duplicate_of": row.duplicate_of,
+            "observation_ids": row.observation_ids,
+            "root_cause_key": row.root_cause_key,
+            "subject_version": row.subject_version,
+            "reproducibility": row.reproducibility,
+            "verification_strength": row.verification_strength,
+            "remediation_hint": row.remediation_hint,
         }
     )
