@@ -180,6 +180,15 @@ class Settings(BaseSettings):
     # C-001's stronger rule: a completion claim needs an observation of at least
     # `rerun_by_nyx` strength. Off, the critic keeps its evidence-only behaviour.
     require_independent_verification: bool = False
+    # C-003's stronger rule: evidence must cover the files, modules or endpoints the claim's
+    # change touched, not merely the same commit. Off, the critic compares only the scope fields
+    # that existed before the ground-truth layer.
+    require_coverage_scope: bool = False
+    # C-006's stronger rule: an approval reference is not enough -- the authorisation record it
+    # points at must name an approver other than the actor, cover the action's scope, and not
+    # have expired. Off, the critic's behaviour is unchanged and a present reference still
+    # satisfies it.
+    require_valid_authorisation: bool = False
 
     @model_validator(mode="after")
     def _check_ground_truth_configuration(self) -> Self:

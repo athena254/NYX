@@ -10,6 +10,7 @@ from nyx.policies.engine import (
     UnknownPolicyError,
     default_registry,
 )
+from nyx.policies.rules import PolicyRule, PolicyRuleKind
 
 __all__ = [
     "PolicyDecision",
@@ -18,4 +19,6 @@ __all__ = [
     "RuleEvaluation",
     "UnknownPolicyError",
     "default_registry",
+    "PolicyRule",
+    "PolicyRuleKind",
 ]
