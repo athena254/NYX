@@ -415,7 +415,7 @@ because each one is a true positive that the pack missed at the time:
 | 3 | The capability checker was wired while the actor was still self-asserted, so anyone could claim `operator` | 4 | c006 / authorisation |
 | 4 | `nyx finding dispose` could never succeed: the CLI bound deny-all | 4 | config/flag |
 | 5 | Rate limiting keyed on a request field nothing set, and middleware runs before auth | 4 | — |
-| 6 | **Claims carried no `retention_class`** — the producer's value was validated then silently discarded, so purge skipped every claim forever *while reporting success* | 4 | **c015 claimed-vs-observed side effects** |
+| 6 | **Claims carried no `retention_class`** — the producer's value was validated then silently discarded, so purge skipped every claim forever *while reporting success* | 4 | **c016 claimed-vs-observed side effects** |
 | 7 | `nyx doctor` reported any *configured* optional integration as a failure while never checking availability | 4 | **c017 contract conformance** |
 | 8 | `configure_logging` replaced `root.handlers`, discarding other components' handlers | 4 | — |
 | 9 | `certifi` carried 2 known CVEs | 4 | — |
@@ -424,7 +424,7 @@ because each one is a true positive that the pack missed at the time:
 | 3 | The adapter's evidence was **invisible to C-001** (GitHub says `success`/`failure`, the critic reads `pass|green`/`fail|broken|red`) | 5 | **c001 / c017** |
 | 4 | `nyx doctor` reported only what was *configured*, never what was *registered* vs *enabled* | 5 | c017 |
 
-Phase 4 defect #6 and Phase 5 defect #3 are the two the brief's c015 and c017 are designed to
+Phase 4 defect #6 and Phase 5 defect #3 are the two the brief's c015 and c017 rules are designed to
 catch. Phase 5 defects #2/#3 are the same shape and the roadmap states the lesson: *a slice's own
 tests assert the shape of what it returns; they do not assert that the rest of the system can
 consume it.*

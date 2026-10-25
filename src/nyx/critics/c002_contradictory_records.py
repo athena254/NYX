@@ -21,10 +21,10 @@ from __future__ import annotations
 import re
 
 from nyx.critics.base import CriticResult, CriticScope
+from nyx.critics.claim_graph import outcome_fact_key
 from nyx.critics.context import CriticContext
 from nyx.domain.base import Scope
 from nyx.domain.claims import Claim
-from nyx.critics.claim_graph import outcome_fact_key
 from nyx.domain.enums import (
     CriticResultStatus,
     CriticType,

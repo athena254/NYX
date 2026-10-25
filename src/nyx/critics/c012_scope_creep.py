@@ -1,20 +1,22 @@
 """C-012 — Scope creep (SPEC §8).
 
 Detects a recorded action that reaches **outside the task it was given**, or that **grants a
-permission** the task did not request. One rule, two triggers:
+permission** the task did not request. Two triggers:
 
 * RULE 1 (out-of-scope access): an action recorded in the event payload or in linked evidence
-  names a path or resource that is not within the task's declared scope.
+  names a path or resource that is not within the task's declared allow-list.
 * RULE 2 (unrequested permission change): a permission-granting action appears (grant, revoke,
-  role binding, permission change, IAM write) that the task did not ask for.
+  role binding, permission change, IAM write) that the task did not request.
 
-The declared scope is read from the event payload, in descending order of specificity:
-``task_scope`` (``{"paths": [...], "resources": [...]}``), ``scope_paths``,
-``allowed_paths``, then ``allowed_resources``. Each entry may be a path, a URI
-(``scheme://host/path``), or a bare host: every component is compared independently, so a
-declared ``https://api.example.com/v1/orders`` admits both ``https://api.example.com/v1/orders/42``
-and a bare ``api.example.com``. An action whose resource cannot be resolved to a non-empty
-path/host is skipped rather than judged.
+The declared scope is read from the event payload, most specific first: ``task_scope.paths``,
+``scope_paths``, ``allowed_paths``, then ``allowed_resources`` (hosts). A declared entry may be a
+path, a URI (``scheme://host/path``), or a bare host, and every component is compared
+independently: a declared ``https://api.example.com/v1/orders`` therefore admits both
+``https://api.example.com/v1/orders/42`` and a bare ``api.example.com``.
+
+An action is read only from the payload's declared action/target keys. Free-text fields — an
+evidence item's ``title``, ``description``, ``source_ref`` — are **not** scanned, because a prose
+field that merely *mentions* a path the agent did not touch would manufacture a finding.
 
 **Deliberately conservative, like C-006.** An unrecognised verb is NOT a scope violation, and a
 resource that cannot be parsed is NOT out of scope: inventing violations would manufacture
@@ -24,13 +26,13 @@ this vocabulary can be extended to close later. That reasoning is repeated in ev
 
 The declared ``CriticScope`` states what this critic can and cannot assess. It does **not**
 claim to detect malicious intent, insider threat, or a compromised agent: this critic records
-only that a *producer-reported* action reached outside the scope the producer declared, or
-that a permission change appears. The record under assessment is producer-reported, so every
-finding carries ``verification_strength=SELF_REPORTED``.
+only that a *producer-reported* action reached outside the scope the producer declared, or that
+a permission change appears. The record under assessment is producer-reported, so every finding
+carries ``verification_strength=SELF_REPORTED``.
 
 Limitation: this critic reads declared scope strings, not an authoritative task definition. A
-task whose scope was recorded loosely, incompletely, or after the fact cannot be assessed here:
-a missing or undeclared scope yields ``no_finding`` (out of scope, not an accusation), because
+task whose scope was recorded loosely, incompletely, or after the fact cannot be assessed here: a
+missing or undeclared scope yields ``no_finding`` (out of scope, not an accusation), because
 absent telemetry is unknown, never misconduct.
 
 A ``no_finding`` result means **only** that this critic found no out-of-scope access and no
@@ -73,7 +75,8 @@ _DECLARED_PERMISSION_KEYS = ("requested_permissions", "task_scope.permissions")
 #: Payload keys that record the action under assessment.
 _ACTION_KEYS = ("action", "tool", "tool_name", "operation", "requested_action", "proposed_action")
 
-#: Payload keys that carry the resource, path, or target of the action.
+#: Payload keys that carry the resource, path, or target of the action. ``locator`` is the
+#: declared pointer an evidence item contributes; it is not a free-text field.
 _TARGET_KEYS = (
     "path",
     "file",
@@ -85,15 +88,17 @@ _TARGET_KEYS = (
     "url",
     "uri",
     "endpoint",
+    "locator",
 )
 
 #: Payload keys that hold a *list* of the same. Lists are normalised and scanned too, because a
-#: producer that records one action per entry will put the path in the list rather than the scalar.
+#: producer that records one action per entry puts the path in the list rather than the scalar.
 _TARGET_LIST_KEYS = ("paths", "files", "resources", "targets")
 
-#: Permission-granting verbs. Deliberately a closed vocabulary: anything else is not a permission
-#: change to this critic. ``grant_admin`` and ``change_permissions`` both normalise to a token
-#: whose head is in this set.
+#: Verbs that are unambiguous permission changes on their own. Deliberately a closed vocabulary:
+#: anything else is not a permission change to this critic. Ambiguous verbs (``write``, ``set``,
+#: ``update``) count only when the action or its target names a permission object, so a routine
+#: ``write`` to a file is never accused of changing a permission.
 _PERMISSION_VERBS = frozenset(
     {
         "grant",
@@ -101,26 +106,15 @@ _PERMISSION_VERBS = frozenset(
         "assign",
         "bind",
         "attach",
-        "set",
-        "add",
-        "remove",
-        "create",
-        "update",
-        "change",
-        "modify",
-        "write",
-        "enable",
-        "disable",
         "promote",
         "elevate",
         "delegate",
-        "rotate_credentials",
     }
 )
 
-#: Nouns that mark an operation as a permission/IAM write. The head token of an action is matched
-#: against the head of each noun, so ``modify_permissions`` and ``update_permissions`` are the
-#: same permission change.
+#: Nouns that mark an operation as a permission/IAM write. A token of the action or of a target
+#: is matched against this set, so ``update_permissions`` and ``change_role`` are permission
+#: changes while a ``write`` to ``/srv/app/secrets/credentials.json`` is not.
 _PERMISSION_NOUNS = frozenset(
     {
         "permission",
@@ -148,26 +142,19 @@ _PERMISSION_NOUNS = frozenset(
     }
 )
 
-#: Markers of a scope restriction that makes an action out-of-scope even when the resource itself
-#: was never declared. Only explicit restriction markers count: a bare resource name is not a
-#: restriction, so this cannot be used to manufacture a finding from an undeclared scope.
-_EXPLICIT_RESTRICTION = re.compile(
-    r"\b(out[_\s-]?of[_\s-]?scope|unauthori[sz]ed|unauthorized|forbidden|not[_\s-]?allowed"
-    r"|outside[_\s-]?scope|disallowed|prohibited|denied)\b"
-)
+#: A Windows drive path, a POSIX/UNC absolute path, or a URI. Anything else is a bare word.
+_PATHLIKE = re.compile(r"^(?:[A-Za-z]:[\\/]|/|~)|://")
 
-#: Markers of a permission change in prose. Explicit only; a plain "set" is not a permission.
-_PERMISSION_PROSE = re.compile(
-    r"\b(grant|revoke|assign|attach|bind|change|update|modify|add|remove)\w*\s+"
-    r"(permission|permissions|role|roles|policy|policies|binding|bindings|acl|iam|"
-    r"capability|capabilities|privilege|privileges|credential|credentials|entitlement)s?\b"
-    r"|\b(iam|permission|role|policy|acl|rbac)\s+(write|change|update|modify|binding)s?\b"
-    r"|\bpermission\s+(change|grant|escalation)s?\b"
-    r"|\brole\s+bindings?\b"
-)
+#: Separators folded away before a value is tokenised for permission-noun matching.
+_TOKEN_SPLIT = re.compile(r"[^0-9a-z]+")
 
 
-def _no_finding(proposition: str, rationale: str, scope: Scope) -> CriticResult:
+def _no_finding(
+    proposition: str,
+    rationale: str,
+    scope: Scope,
+    observations: list[str] | None = None,
+) -> CriticResult:
     """Build a ``no_finding`` result.
 
     ``no_finding`` means only that this critic found no out-of-scope access and no unrequested
@@ -181,7 +168,14 @@ def _no_finding(proposition: str, rationale: str, scope: Scope) -> CriticResult:
         result=CriticResultStatus.NO_FINDING,
         proposition=proposition,
         scope=scope,
-        observations=[],
+        observations=(
+            observations
+            if observations is not None
+            else [
+                "The recorded actions were compared against the declared scope and no "
+                "out-of-scope access or unrequested permission change was found."
+            ]
+        ),
         rationale=rationale,
         recommended_next_step="No action required from this critic.",
     )
@@ -204,13 +198,29 @@ def _normalise_path(value: str) -> str:
     try:
         parts = urlsplit(text)
     except ValueError:
-        parts = None
-    if parts is not None and parts.scheme and parts.netloc:
+        return text.rstrip("/")
+    if parts.scheme and parts.netloc:
         return parts.path.rstrip("/") or "/"
-    if parts is not None and parts.scheme and not parts.netloc:
+    if parts.scheme and not parts.netloc:
         # ``file:///var/log`` -- the path is the whole address.
         return parts.path.rstrip("/") or "/"
     return text.rstrip("/")
+
+
+def _is_path_like(value: str) -> bool:
+    """Return whether ``value`` is shaped like a filesystem path or URI rather than a bare word.
+
+    A bare word (``deploy``, ``team-lead``) is not a path, so it cannot be shown to be outside a
+    path allow-list.
+    """
+
+    return bool(_PATHLIKE.search(value))
+
+
+def _tokens(value: str) -> list[str]:
+    """Split a normalised value into lower-case alphanumeric tokens."""
+
+    return [token for token in _TOKEN_SPLIT.split(_normalise_token(value)) if token]
 
 
 def _iter_strings(value: Any) -> Iterator[str]:
@@ -227,142 +237,173 @@ def _iter_strings(value: Any) -> Iterator[str]:
             yield from _iter_strings(child)
 
 
-def _scope_paths(payload: dict[str, Any]) -> list[str]:
-    """Return the declared path allow-list, or an empty list when the task declared none."""
+def _declared_values(payload: dict[str, Any], keys: tuple[str, ...]) -> list[str]:
+    """Return the non-empty string values declared under ``keys``, in key order.
 
-    for key in _SCOPE_PATH_KEYS:
-        if key == "task_scope.paths":
-            task_scope = payload.get("task_scope")
-            if isinstance(task_scope, dict):
-                values = _iter_strings(task_scope.get("paths"))
+    A dotted key (``task_scope.paths``) reads one level into the payload's ``task_scope`` dict.
+    The first key that yields any value wins, so a producer's most specific declaration is the
+    one assessed.
+    """
+
+    for key in keys:
+        if "." in key:
+            head, tail = key.split(".", 1)
+            container = payload.get(head)
+            if isinstance(container, dict):
+                values = list(_iter_strings(container.get(tail)))
             else:
                 continue
         else:
-            values = _iter_strings(payload.get(key))
-        paths = [path for path in (_normalise_path(value) for value in values) if path]
-        if paths:
-            return paths
+            values = list(_iter_strings(payload.get(key)))
+        if values:
+            return values
     return []
 
 
+def _scope_paths(payload: dict[str, Any]) -> list[str]:
+    """Return the declared path allow-list, or an empty list when the task declared none."""
+
+    declared = _declared_values(payload, _SCOPE_PATH_KEYS)
+    return [path for path in (_normalise_path(value) for value in declared) if path]
+
+
+def _host_of(value: str) -> str:
+    """Return the host named by a declared path, URI, or bare host, or an empty string."""
+
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return ""
+    if not parts.netloc:
+        return ""
+    return parts.netloc.rsplit("@", 1)[-1].split(":", 1)[0].lower()
+
+
 def _scope_hosts(payload: dict[str, Any]) -> list[str]:
-    """Return the hosts named by the declared resources, e.g. ``api.example.com``."""
+    """Return the hosts named by the declared resources and paths, e.g. ``api.example.com``.
+
+    A declared URI contributes its host as well as its path, so a task allowed to reach
+    ``https://api.example.com/v1/orders`` also admits a bare ``api.example.com``.
+    """
 
     hosts: list[str] = []
-    for key in _SCOPE_RESOURCE_KEYS:
-        if key == "task_scope.resources":
-            task_scope = payload.get("task_scope")
-            if isinstance(task_scope, dict):
-                values = _iter_strings(task_scope.get("resources"))
-            else:
-                continue
-        else:
-            values = _iter_strings(payload.get(key))
-        for value in values:
-            try:
-                parts = urlsplit(value)
-            except ValueError:
-                parts = None
-            if parts is not None and parts.netloc:
-                host = parts.netloc.rsplit("@", 1)[-1].split(":", 1)[0]
-                if host:
-                    hosts.append(host.lower())
+    for key in (*_SCOPE_RESOURCE_KEYS, *_SCOPE_PATH_KEYS):
+        for value in _declared_values(payload, (key,)):
+            host = _host_of(value)
+            if host and host not in hosts:
+                hosts.append(host)
     return hosts
 
 
 def _declared_permissions(payload: dict[str, Any]) -> list[str]:
     """Return the permissions the task requested, normalised, or an empty list."""
 
-    tokens: list[str] = []
-    for key in _DECLARED_PERMISSION_KEYS:
-        if key == "task_scope.permissions":
-            task_scope = payload.get("task_scope")
-            if isinstance(task_scope, dict):
-                values = _iter_strings(task_scope.get("permissions"))
-            else:
-                continue
-        else:
-            values = _iter_strings(payload.get(key))
-        tokens.extend(_normalise_token(value) for value in values)
-    return tokens
+    declared = _declared_values(payload, _DECLARED_PERMISSION_KEYS)
+    return [_normalise_token(value) for value in declared]
 
 
 def _is_permission_verb(action: str) -> bool:
-    """Return whether ``action`` starts with a permission-granting verb."""
+    """Return whether ``action`` starts with an unambiguous permission-granting verb."""
 
     if not action:
         return False
     return _normalise_token(action).split("_", 1)[0] in _PERMISSION_VERBS
 
 
-def _is_permission_noun(action: str) -> bool:
-    """Return whether ``action`` names a permission, role, policy, or credential object."""
+def _is_permission_noun(value: str) -> bool:
+    """Return whether ``value`` names a permission, role, policy, or credential object.
 
-    for noun in _PERMISSION_NOUNS:
-        if _normalise_token(action).split("_", 1)[0] == _normalise_token(noun):
-            return True
-    return False
+    A path or URI is never a permission object, so ``/srv/app/secrets/credentials.json`` is not
+    mistaken for a credential change just because its file name contains ``credentials``.
+    """
+
+    if _is_path_like(value):
+        return False
+    return any(token in _PERMISSION_NOUNS for token in _tokens(value))
 
 
-def _is_permission_change(action: str, target: str) -> bool:
+def _action_names_permission_object(action: str) -> bool:
+    """Return whether the action itself names a permission object, e.g. ``update_permissions``."""
+
+    return any(token in _PERMISSION_NOUNS for token in _tokens(action))
+
+
+def _is_permission_change(action: str, targets: list[str]) -> bool:
     """RULE 2: does this action grant, revoke, bind, or otherwise change a permission?
 
-    Either the verb is a permission verb, or the target (or the action text itself, for prose
-    records) carries an explicit permission marker. An unrecognised verb with no permission
-    marker is not a permission change.
+    The verb is unambiguous, the action names a permission object, or a declared target names
+    one. An unrecognised verb with no permission target is not a permission change.
     """
 
     if not action:
         return False
     if _is_permission_verb(action):
         return True
-    if _is_permission_noun(target):
+    if _action_names_permission_object(action):
         return True
-    return bool(_PERMISSION_PROSE.search(f"{action} {target}".lower()))
+    return any(_is_permission_noun(target) for target in targets)
 
 
 def _resource_in_scope(resource: str, declared_paths: list[str], declared_hosts: list[str]) -> bool:
     """Return whether ``resource`` is within the declared paths or hosts.
 
     In scope when the resource equals a declared path, is under a declared path, or names a
-    declared host. A resource with no path and no host (a bare word such as ``deploy``) is
+    declared host. A resource that is not path-shaped (a bare word such as ``deploy``) is
     unparseable and is treated as **in scope**: it cannot be shown to be outside.
     """
 
     if not resource:
         return True
+    if not _is_path_like(resource):
+        return True
     for path in declared_paths:
         if resource == path or resource.startswith(path + "/"):
             return True
-    for host in declared_hosts:
-        if host and (resource == host or resource.endswith(host)):
-            return True
-    return False
+    return any(host and (resource == host or resource.endswith(host)) for host in declared_hosts)
 
 
-def _iter_targets(record: dict[str, Any]) -> Iterator[str]:
-    """Yield every resource, path, or target named in one record's payload."""
+def _action_of(record: dict[str, Any]) -> str:
+    """Return the declared action token for one record, or an empty string."""
 
+    for key in _ACTION_KEYS:
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+    return ""
+
+
+def _targets_of(record: dict[str, Any]) -> list[str]:
+    """Return the resources, paths, and targets a record declares, in key order.
+
+    Only the declared action/target keys are read. Free-text fields (an evidence item's title,
+    description, or source_ref) are deliberately not scanned: a prose mention of a path is not an
+    action on it, and treating it as one would manufacture findings.
+    """
+
+    targets: list[str] = []
     for key in _TARGET_KEYS:
-        yield from _iter_strings(record.get(key))
+        targets.extend(_iter_strings(record.get(key)))
     for key in _TARGET_LIST_KEYS:
         values = record.get(key)
         if isinstance(values, list):
-            yield from _iter_strings(values)
+            targets.extend(_iter_strings(values))
+    return targets
 
 
 def _iter_records(context: CriticContext) -> Iterator[dict[str, Any]]:
-    """Yield the action records this critic reads: the event payload, then linked evidence."""
+    """Yield the action records this critic reads: the event payload, then linked evidence.
+
+    An evidence item contributes its ``locator`` — the declared pointer to the thing the evidence
+    is about — and not its title or description.
+    """
 
     yield dict(context.target_event.payload)
     for item in context.linked_evidence:
-        if isinstance(item.source_ref, str):
-            record = dict(item.model_dump())
-            record.setdefault("source_ref", item.source_ref)
-            yield record
+        if isinstance(item.locator, str) and item.locator.strip():
+            yield {"locator": item.locator}
 
 
-def _root_cause_key(records: list[tuple[str, str]], scope: Scope) -> Digest:
+def _root_cause_key(findings: list[tuple[str, str]], scope: Scope) -> Digest:
     """Return the stable defect identity for the offending actions.
 
     The key covers every offending ``action -> resource`` pair plus the declared scope, so the
@@ -378,7 +419,7 @@ def _root_cause_key(records: list[tuple[str, str]], scope: Scope) -> Digest:
                 "commit": scope.commit,
                 "environment": scope.environment,
             },
-            "actions": sorted(records),
+            "actions": sorted(findings),
         }
     )
 
@@ -427,29 +468,25 @@ class ScopeCreepCritic:
 
         offending: list[tuple[str, str]] = []
         permission_changes: list[tuple[str, str]] = []
-        sources: list[str] = []
         resources_seen: list[str] = []
 
         for record in _iter_records(context):
-            action = ""
-            for key in _ACTION_KEYS:
-                value = record.get(key)
-                if isinstance(value, str) and value.strip():
-                    action = value.strip().lower()
-                    break
+            action = _action_of(record)
+            targets = _targets_of(record)
+            resources_seen.extend(targets)
 
-            for raw_target in _iter_targets(record):
-                if _EXPLICIT_RESTRICTION.search(raw_target.lower()):
+            for raw_target in targets:
+                if _is_permission_noun(raw_target):
+                    # A permission object is not a filesystem path; RULE 2 assesses it.
                     continue
                 resource = _normalise_path(raw_target)
-                resources_seen.append(resource or raw_target)
                 if not _resource_in_scope(resource, declared_paths, declared_hosts):
                     offending.append((action or "unrecorded_action", resource or raw_target))
 
-            if action and _is_permission_change(action, " ".join(resources_seen)):
+            if action and _is_permission_change(action, targets):
                 if action in declared_permissions:
                     continue
-                permission_changes.append((action, " ".join(resources_seen)))
+                permission_changes.append((action, " ".join(targets)))
 
         if not offending and not permission_changes:
             return _no_finding(
@@ -463,13 +500,9 @@ class ScopeCreepCritic:
             )
 
         findings = offending + permission_changes
-        title = (
-            f"{len(permission_changes)} unrequested permission change(s) and "
-            f"{len(offending)} out-of-scope access(es) recorded for system "
-            f"{context.target_event.source_system_id}"
-        )
         severity = Severity.HIGH if permission_changes else Severity.MEDIUM
         category = FindingCategory.SECURITY_RISK if permission_changes else FindingCategory.OTHER
+        reach = ", ".join(sorted({resource for _action, resource in offending})) or "(none)"
 
         return CriticResult(
             critic_id=CRITIC_ID,
@@ -478,7 +511,7 @@ class ScopeCreepCritic:
             proposition=(
                 f"{len(permission_changes)} unrequested permission change(s) and "
                 f"{len(offending)} out-of-scope access(es) are recorded for system "
-                f"{context.target_event.source_system_id}."
+                f"{context.target_event.source_system_id}: {reach}."
             ),
             scope=context.scope,
             observations=[
@@ -512,9 +545,9 @@ class ScopeCreepCritic:
                 "unparseable resource is not out of scope. A missed verb is a false negative this "
                 "vocabulary can be extended to close later; a fabricated one is a false "
                 "accusation.",
-                "Records that carry an explicit out-of-scope/unauthorised marker are excluded "
-                "from matching, so this rule cannot fire on a record that already disclaims "
-                "itself.",
+                "Only the declared action and target keys are read. A path that appears in free "
+                "text (an evidence title or description) is not an action on that path and is "
+                "not assessed.",
             ],
             unknowns=[
                 "Whether the action was actually executed in the target system.",
@@ -536,7 +569,11 @@ class ScopeCreepCritic:
             requires_human_review=bool(permission_changes),
             category=category,
             severity=severity,
-            title=title,
+            title=(
+                f"{len(permission_changes)} unrequested permission change(s) and "
+                f"{len(offending)} out-of-scope access(es) recorded for system "
+                f"{context.target_event.source_system_id}"
+            ),
             summary=(
                 f"System {context.target_event.source_system_id} recorded "
                 f"{len(permission_changes)} unrequested permission change(s) and "

@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 
 from nyx.critics.base import CriticResult, CriticScope
+from nyx.critics.claim_graph import outcome_fact_key
 from nyx.critics.context import CriticContext
 from nyx.domain.base import Scope
 from nyx.domain.enums import (
@@ -35,7 +36,6 @@ from nyx.domain.enums import (
     Severity,
     VerificationStrength,
 )
-from nyx.critics.claim_graph import outcome_fact_key
 from nyx.domain.evidence import EvidenceItem
 
 CRITIC_ID = "c009-evidence-conflict"

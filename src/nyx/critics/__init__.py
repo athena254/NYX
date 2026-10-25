@@ -29,6 +29,10 @@ from nyx.critics.c007_repeated_failure_regression import RepeatedFailureRegressi
 from nyx.critics.c008_unsupported_certainty import UnsupportedCertaintyCritic
 from nyx.critics.c009_evidence_conflict import EvidenceConflictCritic
 from nyx.critics.c010_nyx_self_consistency import NyxSelfConsistencyCritic
+from nyx.critics.c012_scope_creep import ScopeCreepCritic
+from nyx.critics.c016_claimed_vs_observed_side_effects import (
+    ClaimedVsObservedSideEffectsCritic,
+)
 from nyx.critics.context import CriticContext
 from nyx.critics.registry import (
     CriticInfo,
@@ -53,6 +57,8 @@ register(RiskyActionWithoutAuthorisationCritic())
 register(RepeatedFailureRegressionCritic())
 register(UnsupportedCertaintyCritic())
 register(EvidenceConflictCritic())
+register(ScopeCreepCritic())
+register(ClaimedVsObservedSideEffectsCritic())
 
 
 def register_storage_backed(session_factory: SessionFactory) -> None:

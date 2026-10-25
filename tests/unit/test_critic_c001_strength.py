@@ -21,8 +21,8 @@ from nyx.critics.context import build_context
 from nyx.domain.base import PrincipalRef, Scope, utc_now
 from nyx.domain.claims import Claim
 from nyx.domain.enums import (
-    ClaimType,
     ClaimStatus,
+    ClaimType,
     Environment,
     EvidenceKind,
     IntegrityMethod,
