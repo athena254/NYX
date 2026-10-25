@@ -104,7 +104,15 @@ class Period(NyxModel):
 
 
 class Scope(NyxModel):
-    """The system, artifact, environment, period, and conditions a statement applies to."""
+    """The system, artifact, environment, period, and conditions a statement applies to.
+
+    ``covered`` names the files, modules, or endpoints the statement *covers*. Evidence
+    declares what its verification actually exercised; a claim declares what the claimed change
+    touched. Both are optional and both are unread unless set: a scope that declares neither is
+    not accused of anything by the freshness critic, which can only compare two declared sets.
+    ``covered`` deliberately does not participate in :meth:`has_detail` -- a scope that says only
+    which files it covers, and not which artifact or version, is not a narrowed scope.
+    """
 
     system_id: Identifier
     artifact: Annotated[str, StringConstraints(min_length=1, max_length=512)] | None = None
@@ -113,6 +121,9 @@ class Scope(NyxModel):
     period: Period | None = None
     conditions: list[Annotated[str, StringConstraints(min_length=1, max_length=256)]] = Field(
         default_factory=list, max_length=32
+    )
+    covered: list[Annotated[str, StringConstraints(min_length=1, max_length=512)]] = Field(
+        default_factory=list, max_length=64
     )
 
     def has_detail(self) -> bool:

@@ -304,9 +304,7 @@ def test_requested_permission_passes() -> None:
 def test_bare_resource_word_is_not_treated_as_out_of_scope() -> None:
     """A resource with no path and no host is unparseable, so it cannot be shown to be outside."""
 
-    result = _run(
-        {"task_scope": {"paths": ["/srv/app"]}, "action": "write", "resource": "deploy"}
-    )
+    result = _run({"task_scope": {"paths": ["/srv/app"]}, "action": "write", "resource": "deploy"})
 
     assert result.result is CriticResultStatus.NO_FINDING
 

@@ -2830,7 +2830,7 @@
       },
       "Scope-Input": {
         "additionalProperties": false,
-        "description": "The system, artifact, environment, period, and conditions a statement applies to.",
+        "description": "The system, artifact, environment, period, and conditions a statement applies to.\n\n``covered`` names the files, modules, or endpoints the statement *covers*. Evidence\ndeclares what its verification actually exercised; a claim declares what the claimed change\ntouched. Both are optional and both are unread unless set: a scope that declares neither is\nnot accused of anything by the freshness critic, which can only compare two declared sets.\n``covered`` deliberately does not participate in :meth:`has_detail` -- a scope that says only\nwhich files it covers, and not which artifact or version, is not a narrowed scope.",
         "properties": {
           "artifact": {
             "anyOf": [
@@ -2866,6 +2866,16 @@
             },
             "maxItems": 32,
             "title": "Conditions",
+            "type": "array"
+          },
+          "covered": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Covered",
             "type": "array"
           },
           "environment": {
@@ -2907,7 +2917,7 @@
       },
       "Scope-Output": {
         "additionalProperties": false,
-        "description": "The system, artifact, environment, period, and conditions a statement applies to.",
+        "description": "The system, artifact, environment, period, and conditions a statement applies to.\n\n``covered`` names the files, modules, or endpoints the statement *covers*. Evidence\ndeclares what its verification actually exercised; a claim declares what the claimed change\ntouched. Both are optional and both are unread unless set: a scope that declares neither is\nnot accused of anything by the freshness critic, which can only compare two declared sets.\n``covered`` deliberately does not participate in :meth:`has_detail` -- a scope that says only\nwhich files it covers, and not which artifact or version, is not a narrowed scope.",
         "properties": {
           "artifact": {
             "anyOf": [
@@ -2943,6 +2953,16 @@
             },
             "maxItems": 32,
             "title": "Conditions",
+            "type": "array"
+          },
+          "covered": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Covered",
             "type": "array"
           },
           "environment": {

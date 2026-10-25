@@ -165,9 +165,7 @@ def _critic() -> ClaimedVsObservedSideEffectsCritic:
 def test_claimed_effect_with_a_confirming_observation_passes() -> None:
     """TRUE NEGATIVE: the claim and the observed end state agree."""
 
-    result = _critic().run(
-        _context(evidence=[_evidence()], observations=[_observation()])
-    )
+    result = _critic().run(_context(evidence=[_evidence()], observations=[_observation()]))
 
     assert result.result is CriticResultStatus.NO_FINDING
     assert result.critic_id == CRITIC_ID
@@ -366,9 +364,7 @@ def test_a_side_effect_asserted_only_in_the_claim_statement_is_detected() -> Non
 
 
 def test_no_linked_claim_is_out_of_scope() -> None:
-    result = _critic().run(
-        build_context(target_event=_event(), linked_claim=None, observations=[])
-    )
+    result = _critic().run(build_context(target_event=_event(), linked_claim=None, observations=[]))
 
     assert result.result is CriticResultStatus.NO_FINDING
     assert result.observations

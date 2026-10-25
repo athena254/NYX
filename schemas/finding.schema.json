@@ -309,6 +309,16 @@
             "minLength": 1,
             "maxLength": 256
           }
+        },
+        "covered": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
         }
       }
     },
