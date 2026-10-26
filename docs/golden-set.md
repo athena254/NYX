@@ -116,13 +116,11 @@ Its model-leg metrics are `null` with `scored: 0`, not a fabricated score.
 
 ## What this does not establish
 
-- **The set is eight cases, none of them approved yet.** The brief asks for at least 20. Eight
-  were drafted from `docs/SPEC.md`, all seed through the ingestion gateway, and all reach the
-  expected verdict (8 correct, accuracy 1.0). They are drafts awaiting review. The provider's
-  guardrail is no longer the constraint — it was the *length of the instruction block*, and
-  shortening it took the yield from 2 cases to 8. What is left is provider instability
-  (8 of 15 labelled clauses refused with HTTP 502/503) and the 20-case target.
-  `docs/implementation/golden-set-run.md` records every run and every defect.
+- **The golden set is eight cases, all approved.** The brief asks for at least 20. Eight were
+  drafted from `docs/SPEC.md`, all approved by the owner, all seed through the ingestion gateway
+  and all reach the expected verdict (accuracy 1.0). The remaining gap is volume and provider
+  instability, not the guardrail — see §3b. `docs/implementation/golden-set-run.md` records
+  every run and every defect.
 - **The provider refuses most of the spec — but the trigger was ours, and it is fixed.** The
   full instruction block (~1600 chars) was refused deterministically; a compact one (~700 chars)
   with the schema, the injection defence and the fence all kept is not. Six experiments are

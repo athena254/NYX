@@ -1,0 +1,103 @@
+{
+  "mode": "fixture",
+  "provider": "fixture",
+  "model_version": "fixture-model",
+  "corpus": "evals/llm-critic/corpus.jsonl",
+  "thresholds_status": "current",
+  "deterministic_baseline": {
+    "cases": 8,
+    "scored": 8,
+    "correct": 8,
+    "accuracy": 1.0,
+    "true_positives": 8,
+    "false_positives": 0,
+    "false_negatives": 0,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "model": {
+    "cases": 8,
+    "scored": 0,
+    "correct": 0,
+    "accuracy": null,
+    "true_positives": 0,
+    "false_positives": 0,
+    "false_negatives": 0,
+    "precision": null,
+    "recall": null
+  },
+  "cases": [
+    {
+      "case_id": "acceptance-each-violation-identifies-the-exact-p-0572c956",
+      "source": "docs\\SPEC.md",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "not_run",
+      "model_latency_ms": 0.2,
+      "model_rationale": null
+    },
+    {
+      "case_id": "any-model-prompt-must-tell-the-model-that-eviden-df8583e3",
+      "source": "docs\\SPEC.md",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "not_run",
+      "model_latency_ms": 0.1,
+      "model_rationale": null
+    },
+    {
+      "case_id": "avoid-metric-labels-containing-user-ids-full-cla-f5859369",
+      "source": "docs\\SPEC.md",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "not_run",
+      "model_latency_ms": 0.2,
+      "model_rationale": null
+    },
+    {
+      "case_id": "criticism-identify-contradictions-unsupported-cl-1e682905",
+      "source": "docs\\SPEC.md",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "not_run",
+      "model_latency_ms": 0.2,
+      "model_rationale": null
+    },
+    {
+      "case_id": "evidence-storage-must-preserve-record-identity-a-2366af5d",
+      "source": "docs\\SPEC.md",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "not_run",
+      "model_latency_ms": 0.1,
+      "model_rationale": null
+    },
+    {
+      "case_id": "recommended-approach-do-not-call-every-evaluator-7b41d1d0",
+      "source": "docs\\SPEC.md",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "not_run",
+      "model_latency_ms": 0.2,
+      "model_rationale": null
+    },
+    {
+      "case_id": "replaying-the-same-accepted-event-must-not-creat-b64eb313",
+      "source": "docs\\SPEC.md",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "not_run",
+      "model_latency_ms": 0.1,
+      "model_rationale": null
+    },
+    {
+      "case_id": "unauthorized-remediation-nyx-identifies-a-seriou-9fd967d8",
+      "source": "docs\\SPEC.md",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "not_run",
+      "model_latency_ms": 0.2,
+      "model_rationale": null
+    }
+  ]
+}

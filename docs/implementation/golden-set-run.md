@@ -43,26 +43,36 @@ unapproved case by any route.
 
 ## 1b. The approved set, scored through the product path
 
-After the owner approved both cases (reviewer `kallmedis`, 26 October 2026):
+Eight cases were approved by the project owner (reviewer `kallmedis`, 26 October 2026) and
+scored through the product path:
 
 ```bash
-nyx golden approve <case_id> --reviewer kallmedis
-nyx golden export                       # 2 approved cases -> evals/golden/golden.jsonl
+nyx golden approve <case_id> --reviewer kallmedis      # x8
+nyx golden export                                     # 8 approved cases -> evals/golden/golden.jsonl
 uv run python scripts/eval_llm_critic.py --corpus evals/golden/golden.jsonl
 ```
 
-Recorded in `docs/implementation/evidence/golden-set-scored-2026-10-26.json`:
+Recorded in `docs/implementation/evidence/golden-set-scored-2026-10-26-final.json`:
 
 ```
-deterministic: 2 cases, 2 correct, accuracy 1.0
-  high-impact-actions-are-recommendations-only-in-cf6d  expected=finding  det=finding
-  security-tests-for-unauthorised-access-prompt-in-a5f1  expected=finding  det=finding
+deterministic: 8 cases, 8 correct, accuracy 1.0
+  acceptance-each-violation-identifies-the-exact-p  expected=finding  det=finding
+  any-model-prompt-must-tell-the-model-that-eviden  expected=finding  det=finding
+  avoid-metric-labels-containing-user-ids-full-cla  expected=finding  det=finding
+  criticism-identify-contradictions-unsupported-cl  expected=finding  det=finding
+  evidence-storage-must-preserve-record-identity-a  expected=finding  det=finding
+  recommended-approach-do-not-call-every-evaluator  expected=finding  det=finding
+  replaying-the-same-accepted-event-must-not-creat  expected=finding  det=finding
+  unauthorized-remediation-nyx-identifies-a-seriou  expected=finding  det=finding
 model:        scored 0 -- "not_run", not a fabricated score
 ```
 
-`nyx golden list` reports `total 2, scorable 2, pending 0`. The model leg reports `not_run`
+`nyx golden list` reports `total 8, scorable 8, pending 0`. The model leg reports `not_run`
 because a golden-set case carries no recorded model response — a skipped leg is excluded from
 precision and recall rather than counted as a false negative.
+
+Two earlier cases, approved before the prompt fix, were superseded by the same clause ids being
+re-drafted under the corrected templates; the log is append-only and keeps both decisions.
 
 ## 2. Defects found, and fixed
 

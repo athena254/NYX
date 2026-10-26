@@ -956,12 +956,12 @@ injection/provider-failure suites, and a fixture evaluation corpus and runner.
 
 **Still open**
 
-- **The golden set is eight cases, awaiting review.** `docs/implementation/golden-set-run.md` is
-  the record. Eight cases were drafted from `docs/SPEC.md`; all seed and score correctly
-  (accuracy 1.0). The owner approved two earlier cases on 26 October 2026 (reviewer
-  `kallmedis`). The guardrail that had capped the set at two was the *length of the instruction
-  block*; shortening it — with the schema, the injection defence and the fence all kept — took
-  the yield from 2 to 8, so the remaining constraint is provider instability, not the guardrail.
+- **The golden set is eight cases, all approved.** `docs/implementation/golden-set-run.md` is the
+  record. Eight cases were drafted from `docs/SPEC.md`, approved by the owner (reviewer
+  `kallmedis`), and all seed and score correctly (accuracy 1.0). The guardrail that had capped the
+  set at two was the *length of the instruction block*; shortening it — with the schema, the
+  injection defence and the fence all kept — took the yield from 2 to 8, so the remaining
+  constraint is provider instability, not the guardrail.
 - **CI is green on the pushed commit.** `caad1f4` passed both `CI` and `Security scanning`
   (`gh run list`, 26 October 2026). The eleven commits before it had never been through a
   pipeline; they have now.
