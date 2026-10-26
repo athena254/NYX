@@ -20,7 +20,11 @@ runner = CliRunner()
 
 
 def _draft_response() -> str:
-    """A valid draft response. There is no ``case_id``: the id is derived from the clause."""
+    """A valid draft response. There is no ``case_id``: the id is derived from the clause.
+
+    The scope is a real one: ``system_id`` must be the ``@system`` placeholder and the scope
+    must narrow beyond the system, or the generator refuses the case.
+    """
 
     return json.dumps(
         {
@@ -28,6 +32,7 @@ def _draft_response() -> str:
             "claim": {
                 "statement": "All tests pass for commit abc123.",
                 "claim_type": "completion",
+                "scope": {"system_id": "@system", "artifact": "demo", "commit": "abc123"},
             },
             "event": {"event_type": "agent.completion_claim", "payload": {}},
             "evidence": [

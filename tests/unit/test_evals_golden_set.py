@@ -281,6 +281,173 @@ def test_the_draft_schema_does_not_offer_a_case_id() -> None:
     assert "case_id" not in schema["required"]
 
 
+def test_the_draft_schema_allows_a_null_valid_until() -> None:
+    """A model that says "no expiry" sends ``null``, and that is a correct answer.
+
+    Regression: the first live run lost a clause to
+    ``model output violated the draft schema at ['evidence', 0, 'valid_until']: None is not of
+    type 'string'`` -- a well-formed answer refused over an optional field.
+    """
+
+    schema = build_draft_schema()
+    item = schema["properties"]["evidence"]["items"]["properties"]
+
+    assert item["valid_until"]["type"] == ["string", "null"]
+    assert item["captured_at"]["type"] == ["string", "null"]
+    assert item["valid_from"]["type"] == ["string", "null"]
+
+
+def test_a_draft_whose_scope_does_not_use_the_system_placeholder_is_refused() -> None:
+    """A case that names a system of its own cannot be seeded, and must say so at draft time.
+
+    Regression: the model drafted scopes like ``{"system": "NYX", "component": ...}`` and ``{}``.
+    The eval runner substitutes the literal ``@system`` with the real id, so those cases were
+    refused by the ingestion schema with ``SCHEMA_VALIDATION_FAILED`` on ``/scope/system_id``
+    -- a seed-time crash caused by a prompt that never stated the convention.
+    """
+
+    payload = json.loads(_draft_response())
+    payload["claim"]["scope"] = {"system": "NYX", "component": "evidence evaluation"}
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    with pytest.raises(CaseGenerationError) as excinfo:
+        generator.draft(clauses[0], proposed, source="S")
+
+    assert excinfo.value.code == "missing_system_placeholder"
+
+
+def test_a_draft_using_the_system_placeholder_is_accepted() -> None:
+    """The placeholder is the contract the consumer depends on, so it must be honoured."""
+
+    payload = json.loads(_draft_response())
+    payload["claim"]["scope"] = {"system_id": "@system", "commit": "abc123"}
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    case = generator.draft(clauses[0], proposed, source="S")
+
+    assert case.claim["scope"] == {"system_id": "@system", "commit": "abc123"}
+
+
+@pytest.mark.parametrize("scope", [{"system": "@system"}, {"id": "@system"}, {}])
+def test_a_draft_that_puts_the_placeholder_under_the_wrong_key_is_refused(
+    scope: dict[str, str],
+) -> None:
+    """The value is not enough: the scope schema requires the key ``system_id``.
+
+    Regression: the model wrote ``{"system": "@system"}`` and ``{"id": "@system"}``. Both were
+    refused by the ingestion schema -- ``unknown_field`` on the invented key, and ``required``
+    on ``/scope/system_id`` -- so a string search for the placeholder alone was too weak.
+    """
+
+    payload = json.loads(_draft_response())
+    payload["claim"]["scope"] = scope
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    with pytest.raises(CaseGenerationError) as excinfo:
+        generator.draft(clauses[0], proposed, source="S")
+
+    assert excinfo.value.code == "missing_system_placeholder"
+
+
+def test_the_draft_schema_carries_the_event_type_pattern() -> None:
+    """The consumer's event-type contract belongs in the draft schema, not in the seed's error.
+
+    Regression: the model invented ``high_impact_action_recommended``; the ingestion schema
+    refused it with ``invalid_format`` on ``/event_type`` and the case could not be seeded.
+    """
+
+    schema = build_draft_schema()
+    pattern = schema["properties"]["event"]["properties"]["event_type"]["pattern"]
+
+    assert re.search(pattern, "agent.completion_claim")
+    assert not re.search(pattern, "high_impact_action_recommended")
+
+
+def test_an_invented_event_type_is_refused_at_draft_time() -> None:
+    payload = json.loads(_draft_response())
+    payload["event"]["event_type"] = "high_impact_action_recommended"
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    with pytest.raises(CaseGenerationError) as excinfo:
+        generator.draft(clauses[0], proposed, source="S")
+
+    assert excinfo.value.code == "invalid_output"
+
+
+def test_a_scope_that_names_only_the_system_is_refused() -> None:
+    """A bare system id is not a scoped claim; the domain refuses it with ``UNSCOPED_CLAIM``.
+
+    Regression: the first seeded golden case failed on exactly this -- the model wrote
+    ``{"system_id": "@system"}`` and nothing else. Checking it at draft time turns a seed-time
+    refusal into a draft-time one with a legible reason.
+    """
+
+    payload = json.loads(_draft_response())
+    payload["claim"]["scope"] = {"system_id": "@system"}
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    with pytest.raises(CaseGenerationError) as excinfo:
+        generator.draft(clauses[0], proposed, source="S")
+
+    assert excinfo.value.code == "unscoped_claim"
+
+
+def test_a_scope_narrowed_by_a_commit_is_accepted() -> None:
+    payload = json.loads(_draft_response())
+    payload["claim"]["scope"] = {"system_id": "@system", "commit": "abc123"}
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    case = generator.draft(clauses[0], proposed, source="S")
+
+    assert case.claim["scope"]["commit"] == "abc123"
+
+
+def test_a_draft_with_no_claim_scope_at_all_is_refused() -> None:
+    """An unscoped claim is not assessable, so a case without a scope is not a case."""
+
+    payload = json.loads(_draft_response())
+    payload["claim"].pop("scope", None)
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    with pytest.raises(CaseGenerationError) as excinfo:
+        generator.draft(clauses[0], proposed, source="S")
+
+    assert excinfo.value.code == "missing_system_placeholder"
+
+
+def test_the_prompt_states_the_system_placeholder_convention() -> None:
+    """The convention the consumer depends on must be visible in the prompt, not inferred."""
+
+    prompt = build_prompt(
+        clause="A stale report is a finding.",
+        section="S",
+        schema=build_draft_schema(),
+    )
+
+    assert "@system" in prompt
+
+
 def test_a_long_clause_is_still_recorded() -> None:
     """A real requirement can exceed the old 200-character traceability bound.
 

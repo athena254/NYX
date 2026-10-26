@@ -62,6 +62,61 @@ def test_high_entropy_rule_does_not_destroy_identifier_fields() -> None:
     assert not report.redacted
 
 
+def test_a_long_hyphenated_slug_under_a_name_key_is_not_treated_as_an_opaque_blob() -> None:
+    """A slug in a display field is an identifier, not a secret.
+
+    Redacting it breaks the schema the payload had already passed.
+
+    Regression: the golden-set case id ``acceptance-...-0572c956`` is 62 characters of
+    lowercase letters, digits and hyphens, so the entropy rule replaced the whole system name
+    with ``[REDACTED:high_entropy_value]``. The ingestion pipeline validates, redacts, then
+    re-validates, so the redacted name then failed ``/name``'s ``^[a-z0-9][a-z0-9._-]*$`` and
+    the case was refused with ``SCHEMA_VALIDATION_FAILED`` -- a redaction defect reported as a
+    producer error.
+
+    The exemption is by **key**, not by shape, and that distinction is load-bearing: the test
+    below a 40-character hyphenated lowercase *secret* is the same shape as a slug, so a shape
+    rule cannot separate them. ``name`` is a display field, so the heuristic has no business
+    touching it -- the same trade-off the rule already makes for ``commit`` and ``digest``.
+    """
+
+    slug = "eval-acceptance-each-violation-identifies-the-exact-p-0572c956"
+    assert len(slug) >= 40
+
+    redacted, report = redact({"name": slug})
+
+    assert redacted == {"name": slug}
+    assert not report.redacted
+
+
+def test_a_hyphenated_lowercase_secret_is_still_caught() -> None:
+    """The slug exemption must not become a way through for a secret.
+
+    A 40-character lowercase hyphenated API key is shape-identical to a slug, so the exemption
+    is key-based only. This is the test that fails if the rule is widened to shapes.
+    """
+
+    secret = "sk-live-abcdefghijklmnopqrstuvwxyz1234567890"  # noqa: S105
+    assert "-" in secret
+
+    # A neutral key, so the *entropy* rule is the only thing that can catch it: a key named
+    # like a secret would be redacted by the key rule instead, which is not what this tests.
+    redacted, report = redact({"blob": secret})
+
+    assert "high_entropy_value" in report.rules_fired()
+    assert redacted["blob"].startswith(PLACEHOLDER_PREFIX)
+
+
+def test_a_display_field_name_is_exempt_by_key() -> None:
+    """A key named ``name`` is a display field: the heuristic has no business touching it."""
+
+    slug = "a" * 40 + "-b" * 10
+    redacted, report = redact({"name": slug})
+
+    assert redacted == {"name": slug}
+    assert not report.redacted
+
+
 def test_clean_payload_is_untouched() -> None:
     payload: dict[str, Any] = {
         "message": "hello world",

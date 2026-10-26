@@ -62,6 +62,16 @@ _IDENTIFIER_KEY_MARKERS = (
     "uuid",
     "trace",
     "span",
+    # Display and identity fields. ``name`` is here because a system manifest's ``name`` is a
+    # schema-constrained identifier (``^[a-z0-9][a-z0-9._-]*$``), and the high-entropy rule was
+    # firing on a hyphenated slug long enough to look opaque -- turning
+    # ``eval-acceptance-...-0572c956`` into ``[REDACTED:high_entropy_value]``, which then failed
+    # the very schema the payload had already passed. A field that a schema constrains to a slug
+    # cannot hold a secret, so the heuristic has no business touching it.
+    "name",
+    "title",
+    "slug",
+    "label",
 )
 
 

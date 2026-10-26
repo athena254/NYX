@@ -46,7 +46,13 @@ from nyx.llm.provider import extract_json_document
 #: Bumped whenever the prompt text changes, so a stored case says which template produced it.
 #: 1.1.0 -- the JSON Schema is embedded in the prompt, rather than referenced by name.
 #: 1.2.0 -- the case id is derived from the clause and is no longer a field the model is offered.
-PROMPT_TEMPLATE_VERSION = "1.2.0"
+#: 1.3.0 -- the prompt states the ``@system`` placeholder convention, and a drafted scope that
+#:          does not use it is refused at draft time rather than crashing the seed.
+#: 1.4.0 -- the prompt states that a scope must narrow beyond the system, and an unscoped claim
+#:          is refused at draft time rather than with ``UNSCOPED_CLAIM`` at seed time.
+#: 1.5.0 -- the draft schema carries the consumer's ``event_type`` pattern, so an invented event
+#:          type is refused at draft time rather than with ``invalid_format`` at seed time.
+PROMPT_TEMPLATE_VERSION = "1.5.0"
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -97,7 +103,7 @@ def case_id_for(clause: SpecClause) -> str:
     gets two ids rather than one.
     """
 
-    digest = hashlib.sha256(f"{clause.section}\x00{clause.text}".encode("utf-8")).hexdigest()[:8]
+    digest = hashlib.sha256(f"{clause.section}\x00{clause.text}".encode()).hexdigest()[:8]
     slug = _slug(clause.text)
     candidate = f"{slug}-{digest}"
     # ``CaseId`` allows 128 characters and the pattern ^[a-z0-9][a-z0-9._-]*$. A slug longer
@@ -140,7 +146,17 @@ def build_draft_schema() -> dict[str, Any]:
                 "additionalProperties": False,
                 "required": ["event_type"],
                 "properties": {
-                    "event_type": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "event_type": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        # The consumer's own contract, stated in the schema rather than left to
+                        # the model: an event type is a dotted, lowercase, underscore-tolerant
+                        # name (``agent.completion_claim``). Without the pattern the model
+                        # invented values like ``high_impact_action_recommended``, which the
+                        # ingestion schema refused with ``invalid_format`` on ``/event_type``.
+                        "pattern": r"^[a-z0-9]+(\.[a-z0-9][a-z0-9_-]*)+$",
+                    },
                     "payload": {"type": "object"},
                 },
             },
@@ -160,9 +176,13 @@ def build_draft_schema() -> dict[str, Any]:
                             "maxLength": 2000,
                         },
                         "scope": {"type": "object"},
-                        "captured_at": {"type": "string"},
-                        "valid_from": {"type": "string"},
-                        "valid_until": {"type": "string"},
+                        "captured_at": {"type": ["string", "null"]},
+                        "valid_from": {"type": ["string", "null"]},
+                        # Nullable: "no expiry" is a legitimate answer, and the model sends
+                        # ``null`` for it. ``CaseEvidence.valid_until`` is optional, so refusing
+                        # a null here would drop a clause the model had answered correctly --
+                        # which is exactly what happened on the first live run.
+                        "valid_until": {"type": ["string", "null"]},
                     },
                 },
             },
@@ -200,6 +220,14 @@ def build_prompt(*, clause: str, section: str, schema: dict[str, Any]) -> str:
             "",
             "Make the inputs realistic and specific enough that a deterministic rule could",
             "reach the outcome from them alone. Do not explain your reasoning.",
+            "",
+            "Set system_id to the literal string @system in claim.scope and in each evidence",
+            "item's scope. Do not invent a system name or id, and do not use another key such",
+            "as system or id: the real identifier is substituted when the case is seeded, and",
+            "a case that names a system of its own cannot be seeded at all.",
+            "The scope must narrow beyond the system: include at least one of artifact, commit,",
+            "environment, period, or conditions. A scope that names only the system is refused.",
+            "event_type must be a dotted lowercase name such as agent.completion_claim.",
             "",
             "Return JSON only, conforming exactly to this JSON Schema. Do not supply a case id:",
             "it is derived from the requirement, not drafted.",
@@ -282,6 +310,35 @@ class CaseGenerator:
             ) from exc
 
         try:
+            # The consumer's contract, checked at draft time rather than at seed time. The eval
+            # runner substitutes the literal ``@system`` for the real system id, and the scope
+            # schema requires the key ``system_id`` and forbids any other. A case whose scope
+            # names a system of its own -- ``{"system": "NYX"}``, ``{"id": "..."}``, ``{}`` -- is
+            # refused by the ingestion schema with ``SCHEMA_VALIDATION_FAILED`` on
+            # ``/scope/system_id``, or with ``unknown_field`` on the invented key. That is a
+            # seed-time crash caused by a prompt that never stated the convention, so the
+            # convention is now in the prompt *and* the refusal happens here, where the reason
+            # is legible.
+            claim_scope = payload.get("claim", {}).get("scope")
+            if not isinstance(claim_scope, dict) or claim_scope.get("system_id") != "@system":
+                raise CaseGenerationError(
+                    "the drafted claim scope must set system_id to the literal string @system; "
+                    "a case that names a system of its own cannot be seeded",
+                    code="missing_system_placeholder",
+                )
+            # A bare system id is not a scoped claim: ``Scope.has_detail`` requires at least one
+            # of artifact, commit, environment, period or conditions, and the domain refuses the
+            # claim with ``UNSCOPED_CLAIM``. Checking it here turns a seed-time refusal into a
+            # draft-time one with a legible reason.
+            if not any(
+                claim_scope.get(key) for key in ("artifact", "commit", "environment", "period")
+            ) and not claim_scope.get("conditions"):
+                raise CaseGenerationError(
+                    "the drafted claim scope names only the system, which is not a scoped "
+                    "claim; add at least one of artifact, commit, environment, period or "
+                    "conditions",
+                    code="unscoped_claim",
+                )
             evidence = []
             for item in payload.get("evidence", []):
                 # The draft schema leaves the timestamps optional, because a model should not
