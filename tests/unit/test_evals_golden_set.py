@@ -247,6 +247,45 @@ def test_prompt_embeds_the_schema_the_model_must_match() -> None:
         assert key in prompt
 
 
+def test_the_pause_between_clauses_is_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A burst trips the provider's guardrail; a pause does not.
+
+    The default is 0 so a test run is fast, and the CLI passes the setting through. The sleep
+    is skipped before the first clause, because there is nothing to pace against yet.
+    """
+
+    sleeps: list[float] = []
+    monkeypatch.setattr("nyx.evals.generate.time.sleep", sleeps.append)
+    transport = _FakeTransport(_draft_response())
+    clauses = parse_spec(
+        "A stale report is a finding.\nA missing verifier is a finding.", source="S"
+    )
+    assert len(clauses) == 2
+
+    CaseGenerator(transport=transport, delay_seconds=1.5, clock=lambda: _NOW).generate(
+        clauses, source="S"
+    )
+
+    assert sleeps == [1.5], "one pause between two clauses, and none before the first"
+
+
+def test_no_pause_is_taken_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("nyx.evals.generate.time.sleep", sleeps.append)
+    clauses = parse_spec(
+        "A stale report is a finding.\nA missing verifier is a finding.", source="S"
+    )
+
+    _generator(_FakeTransport(_draft_response())).generate(clauses, source="S")
+
+    assert sleeps == []
+
+
+def test_a_negative_pause_is_refused() -> None:
+    with pytest.raises(ValueError, match="delay_seconds"):
+        CaseGenerator(transport=None, delay_seconds=-1.0)
+
+
 def test_the_case_id_is_derived_from_the_clause_not_the_models_choice() -> None:
     """A model asked for an id invents one, and invents the same one twice.
 
@@ -753,6 +792,38 @@ def test_a_draft_is_not_scorable() -> None:
 
     assert [case.case_id for case in pending_cases(events)] == ["c1"]
     assert scorable_cases(events) == [], "a draft is never evidence, however plausible its label"
+
+
+def test_re_proposing_a_draft_is_allowed() -> None:
+    """A partial run must be retryable, and a draft has no decision to revert.
+
+    Regression: the case id is derived from the clause, so a run that drafted 2 of 17 clauses
+    and then hit HTTP 503 could never be retried -- every clause it *had* drafted would collide
+    with its own earlier proposal, and ``current_state`` refused the whole log. A rate-limited
+    provider's failures must not be permanent.
+    """
+
+    events = [_proposed("c1"), _proposed("c1")]
+
+    state = current_state(events)
+
+    assert list(state) == ["c1"]
+    assert state["c1"].status is CaseStatus.DRAFT
+
+
+def test_re_proposing_a_reviewed_case_is_still_refused() -> None:
+    """The refusal that matters is unchanged: an approval must not be revertible to a draft."""
+
+    events = [
+        _proposed("c1"),
+        CaseEvent(
+            event=CaseEventType.APPROVED, at=_NOW, case_id="c1", reviewed_by="alice", note="ok"
+        ),
+        _proposed("c1"),
+    ]
+
+    with pytest.raises(CaseLogError, match="re-proposing would revert its review"):
+        current_state(events)
 
 
 def test_a_corrupted_log_line_is_fatal(tmp_path: Path) -> None:

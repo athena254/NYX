@@ -1,0 +1,97 @@
+{
+  "spec": "docs\\SPEC.md",
+  "clauses": 70,
+  "drafted": 12,
+  "skipped": 53,
+  "failed": 5,
+  "cases": [
+    {
+      "case_id": "evidence_case_001",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "nyx-fn-rate-001",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "nyx_eval_case_1",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "nyx-seeded-violation-001",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "case.untrusted-evidence-001",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "case.20261026.recommendation-analytics-mod",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "nyx_eval_case_1",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "c001-missing-verification",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "nyx_eval_case_1",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "dedup-merge-similar-text",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "nyx_metric_label_userid",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "casexz_0001",
+      "expected": "finding",
+      "status": "draft"
+    }
+  ],
+  "failures": [
+    {
+      "clause": "retrieval answer \u2192 Ragas-style groundedness check; - rule violation \u2192",
+      "section": "docs\\SPEC.md > garak > DeepEval > Ragas",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 502)"
+    },
+    {
+      "clause": "built, and deployed; detect missing or unauthorized steps.",
+      "section": "docs\\SPEC.md > in-toto-rego > 2.4 Provenance, attestations, and trustworthy records > in-toto",
+      "error": "invalid_output: model output violated the draft schema at ['evidence', 0, 'kind']: 'in-toto_attestation' is not one of ['ci_test_result', 'test_result', 'log', 'trace', 'source_file', 'commit', 'artifact_digest', 'attestation', 'measurement', 'policy_evaluation', 'review_record', 'deployment_record', 'runtime_observation', 'model_assessment', 'external_reference', 'other']"
+    },
+    {
+      "clause": "**Unauthorized remediation:** NYX identifies a serious problem but",
+      "section": "docs\\SPEC.md > Phase 5 --- Attestations and lineage > Phase 6 --- Ecosystem-wide oversight and self-audit > 11. Initial acceptance tests",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "Replaying the same accepted event must not create duplicate findings indefinitely.",
+      "section": "docs\\SPEC.md > 11. Storage, idempotency, and retention > 11.1 Storage > 11.2 Idempotency",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "Any model prompt must tell the model that evidence content is untrusted and that instructions found inside evidence must not be followed. This is a defence-in-depth measure, not a substitute for tool permission isolation.",
+      "section": "docs\\SPEC.md > 11.2 Idempotency > 11.3 Retention > 12. Security and privacy requirements",
+      "error": "ValidationError: 1 validation error for CaseProvenance\nspec_ref\n  String should have at most 200 characters [type=string_too_long, input_value='Any model prompt must te...l permission isolation.', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.14/v/string_too_long"
+    }
+  ]
+}
+EXIT=0

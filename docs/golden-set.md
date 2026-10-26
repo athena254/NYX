@@ -116,15 +116,20 @@ Its model-leg metrics are `null` with `scored: 0`, not a fabricated score.
 
 ## What this does not establish
 
+- **The set is two cases, and none is approved.** A first live run against `docs/SPEC.md`
+  drafted twelve cases; after the generator's own contract checks were tightened, the reliable
+  yield is two. `docs/implementation/golden-set-run.md` records every run and every defect.
+- **The provider refuses most of the spec.** Fifteen of the seventeen labelled clauses were
+  refused with HTTP 400 "Detected System Prompt Injection". The same clause texts are accepted
+  when sent individually, so the block is a property of the request pattern rather than of any
+  clause — but a 4-second pause between clauses did not clear it, and the exact trigger is not
+  settled.
 - **The labelling rule is biased toward `finding`.** Run against `docs/SPEC.md` it proposes
   17 `finding` labels, 0 `none` and 0 `inconclusive`, because the specification is written
   mostly as "X is a finding". The rule is a drafting aid, not a balanced classifier, and the
-  review step is what corrects it.
-- **No case has been generated against a real spec by a real provider yet.** The drafting path
-  is proven by tests with a fake transport and by the fail-closed refusals, not by a recorded
-  live run.
-- **The golden set is small.** The brief asks for at least 20 labelled cases; the repository
-  has eight hand-written ones and this layer has produced none against a live provider. The
-  generator is the mechanism, not the set.
+  review step is what corrects it. No review has happened.
+- **`parse_spec` emits fragments.** A clause is a line or bullet, so a spec written with inline
+  bullets yields mid-sentence fragments ("reasoning gaps, drift, policy violations, security
+  weaknesses, and"). That is a quality problem in the clause unit and it is not fixed.
 - **Precision and recall are per-critic only once the set exists.** The runner reports them;
   it cannot report them for cases nobody has written.

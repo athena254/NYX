@@ -103,13 +103,22 @@ def current_state(events: list[CaseEvent]) -> dict[str, EvalCase]:
                     f"event for {event.case_id} is {event.event.value} but carries no case"
                 )
             if event.case_id in state:
-                # A case id identifies one case. A second proposal for the same id would
-                # silently revert a reviewed case to a draft, so it is refused rather than
-                # applied — a re-run must pick a fresh id, not overwrite a decision.
-                raise CaseLogError(
-                    f"{event.case_id} is proposed twice; a case id identifies one case and "
-                    "re-proposing would revert its review"
-                )
+                existing = state[event.case_id]
+                if existing.status is not CaseStatus.DRAFT:
+                    # A case id identifies one case, and a reviewed case is a decision. A second
+                    # proposal for an approved or rejected id would silently revert that
+                    # decision to a draft, so it is refused rather than applied.
+                    #
+                    # A **draft** is different: it has never been reviewed, so re-proposing it
+                    # reverts nothing. Refusing that too would make a rate-limited provider's
+                    # failures permanent -- a run that drafted 2 of 17 clauses and then hit
+                    # HTTP 503 could never be retried, because every clause it *did* draft
+                    # would collide with its own earlier proposal. A partial run must be
+                    # retryable.
+                    raise CaseLogError(
+                        f"{event.case_id} is proposed twice; a case id identifies one case "
+                        "and re-proposing would revert its review"
+                    )
             state[event.case_id] = event.case
             continue
 

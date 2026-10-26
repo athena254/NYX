@@ -297,6 +297,7 @@ def generate(
         timeout_seconds=settings.probe_timeout_seconds,
         model_provider=settings.llm_provider,
         model_version=config.model,
+        delay_seconds=settings.golden_delay_seconds,
     )
 
     text = spec.read_text(encoding="utf-8")

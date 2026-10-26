@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -251,9 +252,12 @@ class CaseGenerator:
         model_provider: str | None = None,
         model_version: str | None = None,
         clock: Callable[[], datetime] = utc_now,
+        delay_seconds: float = 0.0,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
+        if delay_seconds < 0:
+            raise ValueError("delay_seconds must not be negative")
         self._schema = schema if schema is not None else build_draft_schema()
         jsonschema.Draft202012Validator.check_schema(self._schema)
         self._transport = transport
@@ -261,6 +265,7 @@ class CaseGenerator:
         self._provider = model_provider
         self._model = model_version
         self._clock = clock
+        self._delay = delay_seconds
 
     @property
     def has_transport(self) -> bool:
@@ -393,7 +398,13 @@ class CaseGenerator:
         """
 
         outcomes: list[DraftOutcome] = []
-        for clause in clauses:
+        for index, clause in enumerate(clauses):
+            if index and self._delay:
+                # A pause, not a retry: the provider's guardrail refuses a burst and answers
+                # the same prompts when they arrive one at a time. Sleeping here is cheaper
+                # than losing most of a spec's clauses to a block that has nothing to do with
+                # their content.
+                time.sleep(self._delay)
             proposed = propose_label(clause.text)
             if proposed is None:
                 outcomes.append(

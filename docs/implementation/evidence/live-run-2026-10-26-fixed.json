@@ -1,0 +1,103 @@
+{
+  "mode": "live",
+  "provider": "dmr-x",
+  "model_version": "openai-fast",
+  "corpus": "evals/llm-critic/corpus.jsonl",
+  "thresholds_status": "pending",
+  "deterministic_baseline": {
+    "cases": 8,
+    "scored": 8,
+    "correct": 6,
+    "accuracy": 0.75,
+    "true_positives": 6,
+    "false_positives": 2,
+    "false_negatives": 0,
+    "precision": 0.75,
+    "recall": 1.0
+  },
+  "model": {
+    "cases": 8,
+    "scored": 8,
+    "correct": 1,
+    "accuracy": 0.125,
+    "true_positives": 0,
+    "false_positives": 0,
+    "false_negatives": 6,
+    "precision": null,
+    "recall": 0.0
+  },
+  "cases": [
+    {
+      "case_id": "same-commit-tests-pass",
+      "source": "synthetic:acceptance-scenario-4",
+      "expected": "none",
+      "deterministic": "finding",
+      "model": "inconclusive",
+      "model_latency_ms": 28990.1,
+      "model_rationale": "The sole evidence provided is a CI run for commit abc123, which indicates all checks passed. This evidence is not linked to the event identifier evt_01M5TY39G8NB3VDEST21BR3T2C and therefore cannot confirm or refute the event's status."
+    },
+    {
+      "case_id": "mismatched-commit",
+      "source": "synthetic:acceptance-scenario-5",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "inconclusive",
+      "model_latency_ms": 17140.5,
+      "model_rationale": "The provided evidence item ev_01M5TY460HY888Q9G5ZHEKVBJD describes a CI run for commit def456, but does not explicitly mention the event evt_01M5TY4600KVMGMNVPTENJBTH9."
+    },
+    {
+      "case_id": "missing-verification",
+      "source": "synthetic:acceptance-scenario-6",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "inconclusive",
+      "model_latency_ms": 8971.3,
+      "model_rationale": "No evidence was provided, so the claim cannot be verified, contradicted, or otherwise evaluated."
+    },
+    {
+      "case_id": "stale-evidence",
+      "source": "synthetic:acceptance-scenario-7",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "inconclusive",
+      "model_latency_ms": 14633.6,
+      "model_rationale": "The provided evidence item ev_01M5TY59VN7DW9YH2CS0D8110Z does not contain any information related to the event evt_01M5TY59V3JDFHZAYDWEDAP4D0."
+    },
+    {
+      "case_id": "agent-report-only",
+      "source": "synthetic:provenance-gap",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "inconclusive",
+      "model_latency_ms": 14503.8,
+      "model_rationale": "The only available evidence (ev_01M5TY6GWM44RXNX4Y50VG2N6W) describes an agent summary of test results for commit abc123 on system sys_01M5TY6GV18J3GP3W3ATTJKCPD and does not provide any information about event evt_01M5TY6GW06E2BC4ZEM0ZTW4MT. Therefore, the claim related to the event cannot be verified or refuted with the data at hand."
+    },
+    {
+      "case_id": "unsupported-certainty",
+      "source": "synthetic:acceptance-scenario-8",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "inconclusive",
+      "model_latency_ms": 10029.6,
+      "model_rationale": "The provided evidence item ev_01M5TY7DVTCGDE04K1HCN1SWJK is a CI test result for commit abc123, but it does not contain any information about event evt_01M5TY7DV7M8Y4DH4V9HRCE8M4."
+    },
+    {
+      "case_id": "conflicting-evidence",
+      "source": "synthetic:acceptance-scenario-9",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "error",
+      "model_latency_ms": 20404.8,
+      "model_rationale": "The LLM response was not valid JSON. No finding was composed and no stored state was changed."
+    },
+    {
+      "case_id": "insufficient-evidence",
+      "source": "synthetic:insufficient-context",
+      "expected": "inconclusive",
+      "deterministic": "finding",
+      "model": "inconclusive",
+      "model_latency_ms": 11414.6,
+      "model_rationale": "There is no direct evidence related to the event evt_01M5TY9HP26MT9S84J2M659G24 in the provided data."
+    }
+  ]
+}

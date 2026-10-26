@@ -84,7 +84,7 @@ unimplemented.
 | 3 — Disputes and verification | 10, 11, 22, 23 (all passing) |
 | 4 — Security and operational hardening | 13, 14, 15, 16, 17, 18, 19, 20, 21 (all passing) |
 | 5 — Integrations | No numbered scenarios; adapter contract tests and independent disablement (all passing) |
-| 6 — Optional model critics and calibration | 19 and 15 on the model path (passing); evaluation corpus recorded in fixture mode; live calibration thresholds pending |
+| 6 — Optional model critics and calibration | 19 and 15 on the model path (passing); live calibration recorded 26 October 2026; thresholds `current` |
 
 ## Evidence required to check a box
 

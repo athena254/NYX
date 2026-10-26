@@ -1,11 +1,55 @@
 {
-  "status": "pending",
+  "status": "current",
   "corpus": "evals/llm-critic/corpus.jsonl",
-  "metrics": null,
-  "note": "Thresholds are a regression floor produced by one recorded live run. No live run has been performed yet, so no numbers are invented here. Run scripts/eval_llm_critic.py --live, record the result in docs/implementation/phase-6-evaluation.md, and replace this object with the measured floors.",
+  "metrics": {
+    "min_accuracy": 0.125,
+    "max_false_positives": 0,
+    "max_false_negatives": 6
+  },
+  "note": "Floors from a recorded live run, 26 October 2026: provider dmr-x, model openai-fast (upstream gpt-oss-20b), eight corpus cases, scored by c011 whose PROMPT_TEMPLATE_VERSION is 1.0.0 (src/nyx/critics/llm.py) and is unchanged by this work. The runner enforces min_accuracy; max_false_positives and max_false_negatives are recorded, not enforced, until the corpus is large enough for them to mean something.",
+  "measured": {
+    "runs": [
+      {
+        "date": "2026-10-26",
+        "prompt_template_version": "1.0.0",
+        "provider": "dmr-x",
+        "model": "openai-fast",
+        "report": "docs/implementation/evidence/live-run-2026-10-26.json",
+        "accuracy": 0.125,
+        "true_positives": 1,
+        "false_positives": 0,
+        "false_negatives": 5,
+        "precision": 1.0,
+        "recall": 0.1667,
+        "notes": "Before the two plumbing fixes. Three of eight cases failed as 'not valid JSON' because the provider wraps its answer in a markdown fence, which the parser treated as a refusal."
+      },
+      {
+        "date": "2026-10-26",
+        "prompt_template_version": "1.0.0",
+        "provider": "dmr-x",
+        "model": "openai-fast",
+        "report": "docs/implementation/evidence/live-run-2026-10-26-fixed.json",
+        "accuracy": 0.125,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 6,
+        "precision": null,
+        "recall": 0.0,
+        "notes": "After the fence fix. No case failed as invalid JSON except one, which the model answered differently on a re-probe -- the model leg is not deterministic. The drafting-template version is irrelevant here: this run is scored by c011."
+      }
+    ],
+    "deterministic_baseline": {
+      "accuracy": 0.75,
+      "true_positives": 6,
+      "false_positives": 2,
+      "false_negatives": 0,
+      "precision": 0.75,
+      "recall": 1.0
+    }
+  },
   "open_items": [
-    "Run the corpus against the owner-approved provider and record the result.",
-    "Set min_accuracy, max_false_negatives, and max_false_positives from that run, with a margin.",
-    "Re-run the corpus whenever the prompt template version changes."
+    "The corpus has eight cases, so one case is 0.125 of the score. The floor catches a collapse, not a drift.",
+    "The model leg abstains (returns inconclusive) on most cases. Whether that is the model or the prompt is not settled by two runs.",
+    "Re-run the corpus whenever PROMPT_TEMPLATE_VERSION changes."
   ]
 }

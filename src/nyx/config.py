@@ -177,6 +177,12 @@ class Settings(BaseSettings):
     probes_allow_mutating: bool = False
     probe_max_steps: int = Field(default=10, ge=1, le=100)
     probe_timeout_seconds: float = Field(default=60.0, gt=0, le=3600)
+    # Pause between clauses when drafting golden-set cases. dmr-X's prompt-injection guardrail
+    # refuses a burst of requests with HTTP 400 "Detected System Prompt Injection" and answers
+    # the same prompts when they arrive one at a time -- so a full-spec run that fires every
+    # clause back to back loses most of its clauses to a rate-shaped block, not to their
+    # content. 0 disables the pause.
+    golden_delay_seconds: float = Field(default=2.0, ge=0.0, le=60.0)
     # C-001's stronger rule: a completion claim needs an observation of at least
     # `rerun_by_nyx` strength. Off, the critic keeps its evidence-only behaviour.
     require_independent_verification: bool = False

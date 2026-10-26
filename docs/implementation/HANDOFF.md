@@ -956,8 +956,10 @@ injection/provider-failure suites, and a fixture evaluation corpus and runner.
 
 **Still open**
 
-- **The live calibration run.** `evals/llm-critic/thresholds.json` is `pending` and says why: no
-  live provider run has been recorded, so no numbers are invented. This is the only remaining
-  Phase 6 item, and it needs the owner's go-ahead to run `scripts/eval_llm_critic.py --live`.
-- **Nothing here has been through CI.** The last green pipeline was on `78aa920`; all of the above
-  is uncommitted as of this writing.
+- **The golden set is drafted but not completed.** `docs/implementation/golden-set-run.md` is the
+  record. Two cases were drafted from `docs/SPEC.md`, both seed and score correctly, and **none is
+  approved** — the review step is a human gate by design (ADR 0013) and no review has happened.
+  Fifteen of the seventeen labelled clauses were refused by dmr-X's prompt-injection guardrail
+  with HTTP 400, so the set cannot be grown against this provider today.
+- **Nothing here has been through CI.** The last green pipeline was on `676b8d9`; everything since
+  is unpushed as of this writing.

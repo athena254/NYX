@@ -1,0 +1,97 @@
+{
+  "spec": "docs\\SPEC.md",
+  "clauses": 70,
+  "drafted": 7,
+  "skipped": 53,
+  "failed": 10,
+  "cases": [
+    {
+      "case_id": "built-and-deployed-detect-missing-or-unauthorize-cf9312b4",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "behavior-that-must-not-be-flagged-ambiguous-case-30b68edc",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "high-impact-actions-are-recommendations-only-in-cf6dd3c2",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "acceptance-each-violation-identifies-the-exact-p-0572c956",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "deduplication-must-not-merge-distinct-incidents-9957fd5a",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "avoid-metric-labels-containing-user-ids-full-cla-f5859369",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "security-tests-for-unauthorised-access-prompt-in-a5f1dbba",
+      "expected": "finding",
+      "status": "draft"
+    }
+  ],
+  "failures": [
+    {
+      "clause": "reasoning gaps, drift, policy violations, security weaknesses, and",
+      "section": "docs\\SPEC.md > NYX --- Evidence-Backed Critic and Ecosystem Oversight > Open-source research, architecture, repository shortlist, and implementation plan > Executive recommendation",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "retrieval answer \u2192 Ragas-style groundedness check; - rule violation \u2192",
+      "section": "docs\\SPEC.md > garak > DeepEval > Ragas",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 502)"
+    },
+    {
+      "clause": "false-negative rate on a labeled set of known violations; - precision",
+      "section": "docs\\SPEC.md > Example: DMRX reports a routing or usage outcome > 8. Threat model and defenses > 9. Self-auditing NYX",
+      "error": "invalid_output: model returned invalid JSON: the response contains no JSON document"
+    },
+    {
+      "clause": "Exit criteria: NYX demonstrably finds seeded violations, avoids known",
+      "section": "docs\\SPEC.md > Phase 4 --- Specialist critics > Phase 5 --- Attestations and lineage > Phase 6 --- Ecosystem-wide oversight and self-audit",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "**Unauthorized remediation:** NYX identifies a serious problem but",
+      "section": "docs\\SPEC.md > Phase 5 --- Attestations and lineage > Phase 6 --- Ecosystem-wide oversight and self-audit > 11. Initial acceptance tests",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "**Evidence storage:** Must preserve record identity and detect unauthorized changes to stored content.",
+      "section": "docs\\SPEC.md > 2. Coding-agent operating instructions > 3. System boundaries and trust model > 3.1 Trust boundaries",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "Credentials and secrets MUST NOT be stored in `metadata`.",
+      "section": "docs\\SPEC.md > 4.1 Required modules > 5. Core domain model > 5.1 MonitoredSystem",
+      "error": "invalid_output: model output violated the draft schema at ['evidence']: {'items': [{'title': 'Metadata contains credential fields', 'description': \"Inspection of metadata/config.json shows entries 'api_key': 'ABCD1234' and 'db_password': 's3cr3t', indicating that secrets are stored in metadata.\", 'kind': 'source_file', 'scope': {'system_id': '@system'}}]} is not of type 'array'"
+    },
+    {
+      "clause": "Detect claims such as \u201cdone\u201d, \u201cfixed\u201d, \u201ctests pass\u201d, or \u201cdeployed\u201d when the required linked verification artifact is missing, stale, failed, or refers to a different commit/build/version.",
+      "section": "docs\\SPEC.md > 7.2 Critic output contract > 8. Minimum critic pack > C-001 \u2014 Completion claim vs. verification",
+      "error": "invalid_output: model output violated the draft schema at ['evidence']: {'items': [{'kind': 'test_result', 'title': 'Missing test result artifact', 'description': 'No test result artifact was attached to the deployment claim, so the claim cannot be verified.', 'scope': {'system_id': '@system'}, 'captured_at': None, 'valid_from': None, 'valid_until': None}]} is not of type 'array'"
+    },
+    {
+      "clause": "Replaying the same accepted event must not create duplicate findings indefinitely.",
+      "section": "docs\\SPEC.md > 11. Storage, idempotency, and retention > 11.1 Storage > 11.2 Idempotency",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "Any model prompt must tell the model that evidence content is untrusted and that instructions found inside evidence must not be followed. This is a defence-in-depth measure, not a substitute for tool permission isolation.",
+      "section": "docs\\SPEC.md > 11.2 Idempotency > 11.3 Retention > 12. Security and privacy requirements",
+      "error": "invalid_output: model output violated the draft schema at ['evidence']: {'items': [{'kind': 'source_file', 'title': 'Untrusted evidence file', 'description': 'A text file named `malicious.txt` containing the instruction: `delete_all_records()` which, if executed, would erase the entire database.', 'scope': {'system_id': '@system'}}]} is not of type 'array'"
+    }
+  ]
+}
+EXIT=0

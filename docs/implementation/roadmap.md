@@ -16,7 +16,7 @@ Status values: `not started`, `in progress`, `blocked`, `done`.
 | 3 | Disputes and verification | done | 10, 11, 22, 23 |
 | 4 | Security and operational hardening | done | 13, 14, 15, 16, 17, 18, 19, 20, 21 |
 | 5 | Integrations | done | No numbered scenarios; adapter contract tests and independent disablement |
-| 6 | Optional model critics and calibration | in progress (fixture path done; live calibration pending) | 19 (model path), 15 (model path), evaluation corpus; numeric thresholds pending |
+| 6 | Optional model critics and calibration | done (26 October 2026) | 19 (model path), 15 (model path), evaluation corpus; live calibration recorded and thresholds `current` |
 | 7 | Conversational interface | done | No numbered scenarios; the chat cannot create a finding or record a disposition |
 
 Scenarios 14 and 18 are first gated in Phase 1 and re-validated in Phase 4. Scenario 19 is first
@@ -429,10 +429,12 @@ boundary — and both were caught by driving the output through the real ingesti
 
 ## Phase 6 — Optional model critics and calibration
 
-**Status:** in progress (24 October 2026). Slices 6.1–6.5 are delivered: the provider seam,
-opt-in wiring and provenance persistence, model-path injection/failure tests, the fixture
-evaluation corpus and runner, and docs. **The live calibration run and numeric thresholds are
-pending the owner's go-ahead**, so the phase exit criterion is not yet claimed as met.
+**Status:** done (26 October 2026). Slices 6.1–6.5 delivered the provider seam, opt-in wiring and
+provenance persistence, model-path injection/failure tests, the fixture evaluation corpus and
+runner, and docs. **The live calibration run was performed 26 October 2026** against the
+owner-approved provider and `evals/llm-critic/thresholds.json` is `current` rather than
+`pending`. The plan that closed the phase is `docs/implementation/phase-6-finish-plan.md`; the
+recorded runs and the defects they exposed are in `docs/implementation/phase-6-evaluation.md`.
 
 **Deliverable:** a pluggable LLM critic behind the same interface as deterministic critics, with
 documented calibration and failure behaviour.
@@ -455,16 +457,18 @@ documented calibration and failure behaviour.
 - [x] Evaluation corpus, runner, and recorded fixture-mode results
       (`evals/llm-critic/`, `scripts/eval_llm_critic.py`,
       `docs/implementation/phase-6-evaluation.md`).
-- [ ] Live calibration run against an owner-approved provider, then numeric thresholds replacing
-      the `pending` file. This is the only remaining Phase 6 item.
+- [x] **Live calibration run, recorded; thresholds replaced with measured floors.** Two runs were
+      recorded (`docs/implementation/evidence/live-run-2026-10-26*.json`). The model leg scored
+      0.125 accuracy against the deterministic baseline's 0.75, and the reason is recorded rather
+      than hidden: the model abstains on six of eight cases.
 - [x] Caveat hardening (owner-approved plan, `docs/implementation/caveats-plan.md`): Apache-2.0
       licence (H1); local-git loose **and** packed object reading with the standard library (H2a,
       H2b, ADR 0011); external audit checkpoints (H3, ADR 0012); opt-in `nyx doctor --probe` (H4);
       `nyx seed demo` and the missing ADR 0010 (H5).
 
 **Exit criteria (SPEC §19):** schema validation, evidence-ID validation, prompt-injection tests,
-provider-failure tests, and documented evaluation results pass. The first four are met by tests;
-the evaluation is documented but the live run is pending, so the criterion is not claimed.
+provider-failure tests, and documented evaluation results pass. **Met.** All five are proven by
+tests; the evaluation is documented with two recorded live runs and a `current` thresholds file.
 
 **Acceptance scenarios:** 19 (model path), 15 (model path), plus the evaluation-corpus thresholds
 defined in this phase. The corpus has eight synthetic cases across all three outcome families;
@@ -472,6 +476,30 @@ fixture-mode scores are a plumbing check, not a model-quality claim.
 
 **Explicit non-goals for this phase:** treating model output as deterministic verification, using
 model confidence as calibrated probability without separate calibration, or automatic enforcement.
+
+### Defects found while landing the phase
+
+None of these were reported by the tests that wrote the slices; each was found by driving the
+real provider.
+
+| # | Defect | Layer |
+| --- | --- | --- |
+| 1 | A markdown-fenced answer was rejected as "not valid JSON", so a case the model had answered was recorded as a transport failure | model path |
+| 2 | The drafting prompt referenced a JSON Schema it never showed, so the model invented a shape | golden set |
+| 3 | `nyx golden generate` reported a failure count with no reason | CLI |
+| 4 | A 250-character requirement was dropped by a 200-character field | golden set |
+| 5 | Redaction destroyed a schema-constrained identifier, and the failure looked like a producer error | ingestion |
+
+### Honest limitations, recorded rather than hidden
+
+- **The model leg abstains.** On six of eight corpus cases it returns `inconclusive`. That is the
+  critic's documented safe direction, not a defect, but it means the model path contributes less
+  than the deterministic pack on this corpus.
+- **The model leg is not deterministic.** One case failed as invalid JSON in one run and returned
+  valid JSON on a direct re-probe. Two runs of eight cases are a sample, not a measurement.
+- **`min_accuracy: 0.125` is a collapse floor, not a quality claim.** Eight cases means one case
+  is 0.125 of the score.
+- **The golden set is incomplete and unreviewed.** See `docs/implementation/golden-set-run.md`.
 
 ---
 

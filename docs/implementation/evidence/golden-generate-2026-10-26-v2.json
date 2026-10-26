@@ -1,0 +1,97 @@
+{
+  "spec": "docs\\SPEC.md",
+  "clauses": 70,
+  "drafted": 12,
+  "skipped": 53,
+  "failed": 5,
+  "cases": [
+    {
+      "case_id": "reasoning-gaps-drift-policy-violations-security-6cdaaf00",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "built-and-deployed-detect-missing-or-unauthorize-cf9312b4",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "behavior-that-must-not-be-flagged-ambiguous-case-30b68edc",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "exit-criteria-nyx-demonstrably-finds-seeded-viol-ab241ebb",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "unauthorized-remediation-nyx-identifies-a-seriou-fe0eb3fb",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "evidence-storage-must-preserve-record-identity-a-2366af5d",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "credentials-and-secrets-must-not-be-stored-in-me-d3a354d4",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "acceptance-each-violation-identifies-the-exact-p-0572c956",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "replaying-the-same-accepted-event-must-not-creat-b64eb313",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "deduplication-must-not-merge-distinct-incidents-9957fd5a",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "any-model-prompt-must-tell-the-model-that-eviden-df8583e3",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "avoid-metric-labels-containing-user-ids-full-cla-f5859369",
+      "expected": "finding",
+      "status": "draft"
+    }
+  ],
+  "failures": [
+    {
+      "clause": "retrieval answer \u2192 Ragas-style groundedness check; - rule violation \u2192",
+      "section": "docs\\SPEC.md > garak > DeepEval > Ragas",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "false-negative rate on a labeled set of known violations; - precision",
+      "section": "docs\\SPEC.md > Example: DMRX reports a routing or usage outcome > 8. Threat model and defenses > 9. Self-auditing NYX",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 502)"
+    },
+    {
+      "clause": "High-impact actions are recommendations only in the MVP. NYX must not independently modify, disable, deploy, delete, spend funds, or change permissions in another system.",
+      "section": "docs\\SPEC.md > 3. System boundaries and trust model > 3.1 Trust boundaries > 3.2 Safety invariants",
+      "error": "transport: The LLM provider did not respond before the deadline at http://127.0.0.1:3000/v1/chat/completions. No finding was composed and no stored state was changed."
+    },
+    {
+      "clause": "Detect claims such as \u201cdone\u201d, \u201cfixed\u201d, \u201ctests pass\u201d, or \u201cdeployed\u201d when the required linked verification artifact is missing, stale, failed, or refers to a different commit/build/version.",
+      "section": "docs\\SPEC.md > 7.2 Critic output contract > 8. Minimum critic pack > C-001 \u2014 Completion claim vs. verification",
+      "error": "invalid_output: model output violated the draft schema at ['evidence', 0, 'valid_until']: None is not of type 'string'"
+    },
+    {
+      "clause": "Security tests for unauthorised access, prompt injection, SSRF/path traversal, payload abuse, and secret leakage.",
+      "section": "docs\\SPEC.md > 16. Observability and operations > 17. Test strategy > 17.1 Required layers",
+      "error": "transport: The LLM provider did not respond before the deadline at http://127.0.0.1:3000/v1/chat/completions. No finding was composed and no stored state was changed."
+    }
+  ]
+}
+EXIT=0

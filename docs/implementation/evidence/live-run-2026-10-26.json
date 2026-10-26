@@ -1,0 +1,103 @@
+{
+  "mode": "live",
+  "provider": "dmr-x",
+  "model_version": "openai-fast",
+  "corpus": "evals/llm-critic/corpus.jsonl",
+  "thresholds_status": "pending",
+  "deterministic_baseline": {
+    "cases": 8,
+    "scored": 8,
+    "correct": 6,
+    "accuracy": 0.75,
+    "true_positives": 6,
+    "false_positives": 2,
+    "false_negatives": 0,
+    "precision": 0.75,
+    "recall": 1.0
+  },
+  "model": {
+    "cases": 8,
+    "scored": 8,
+    "correct": 1,
+    "accuracy": 0.125,
+    "true_positives": 1,
+    "false_positives": 0,
+    "false_negatives": 5,
+    "precision": 1.0,
+    "recall": 0.1667
+  },
+  "cases": [
+    {
+      "case_id": "same-commit-tests-pass",
+      "source": "synthetic:acceptance-scenario-4",
+      "expected": "none",
+      "deterministic": "finding",
+      "model": "error",
+      "model_latency_ms": 515.1,
+      "model_rationale": "The LLM transport failed (LlmTransportError). No finding was composed and no stored state was changed."
+    },
+    {
+      "case_id": "mismatched-commit",
+      "source": "synthetic:acceptance-scenario-5",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "error",
+      "model_latency_ms": 17847.6,
+      "model_rationale": "The LLM response was not valid JSON. No finding was composed and no stored state was changed."
+    },
+    {
+      "case_id": "missing-verification",
+      "source": "synthetic:acceptance-scenario-6",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "no_finding",
+      "model_latency_ms": 7146.0,
+      "model_rationale": "No supporting or counterevidence was supplied, so no inference can be drawn about the event."
+    },
+    {
+      "case_id": "stale-evidence",
+      "source": "synthetic:acceptance-scenario-7",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "inconclusive",
+      "model_latency_ms": 25240.8,
+      "model_rationale": "The only evidence provided (ev_01M5TWS3HJJ3SM7JT4XF9JN881) is a synthetic CI test result for commit abc123. It does not reference the event ID, its context, or any related system activity. Consequently, there is no basis to confirm whether the event occurred, its nature, or its impact. The evidence's limitations explicitly note that it is synthetic evaluation data, further weakening its relevance."
+    },
+    {
+      "case_id": "agent-report-only",
+      "source": "synthetic:provenance-gap",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "error",
+      "model_latency_ms": 30055.0,
+      "model_rationale": "The LLM transport failed (LlmTransportError). No finding was composed and no stored state was changed."
+    },
+    {
+      "case_id": "unsupported-certainty",
+      "source": "synthetic:acceptance-scenario-8",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "finding",
+      "model_latency_ms": 21200.5,
+      "model_rationale": "The CI test result (id ev_01M5TWW1CNC8H1WXGRYWEAEDKM) describes a CI run for commit abc123 with the description \"CI run for commit abc123: all required checks passed.\" This directly supports the proposition that the CI checks succeeded for that commit. The evidence is synthetic and lacks integrity verification, which limits confidence but does not contradict the claim."
+    },
+    {
+      "case_id": "conflicting-evidence",
+      "source": "synthetic:acceptance-scenario-9",
+      "expected": "finding",
+      "deterministic": "finding",
+      "model": "inconclusive",
+      "model_latency_ms": 20701.0,
+      "model_rationale": "Two pieces of evidence, both claiming relevance to the same claim, report opposite outcomes for the same CI run: one indicates all required checks passed, while the other indicates required checks failed. Because the evidence is synthetic and lacks an authoritative source, the truth of the proposition cannot be established, resulting in an inconclusive assessment."
+    },
+    {
+      "case_id": "insufficient-evidence",
+      "source": "synthetic:insufficient-context",
+      "expected": "inconclusive",
+      "deterministic": "finding",
+      "model": "error",
+      "model_latency_ms": 30053.2,
+      "model_rationale": "The LLM transport failed (LlmTransportError). No finding was composed and no stored state was changed."
+    }
+  ]
+}
