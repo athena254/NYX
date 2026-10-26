@@ -28,7 +28,11 @@ from nyx.domain.base import NyxModel, SchemaVersion, UtcDatetime, utc_now
 from nyx.domain.enums import EvidenceKind, IntegrityMethod, RetentionClass, Sensitivity
 
 CaseId = Annotated[str, StringConstraints(min_length=1, max_length=128)]
-ClauseRef = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+#: A clause quoted for traceability. The bound is 2000, not 200: a real specification states
+#: requirements longer than 200 characters, and the first live run lost one to exactly this limit
+#: (`ValidationError: spec_ref ... should have at most 200 characters`). A requirement that cannot
+#: be recorded is a requirement whose case is silently dropped, which is worse than a long field.
+ClauseRef = Annotated[str, StringConstraints(min_length=1, max_length=2000)]
 
 
 class CaseStatus(StrEnum):

@@ -24,6 +24,7 @@ which template produced a case without re-running it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Callable
@@ -40,9 +41,12 @@ from nyx.domain.enums import ClaimType, EvidenceKind
 from nyx.evals.schema import CaseEvidence, CaseProvenance, EvalCase
 from nyx.evals.spec import ProposedLabel, SpecClause, propose_label
 from nyx.ingestion.injection import quote_as_untrusted
+from nyx.llm.provider import extract_json_document
 
 #: Bumped whenever the prompt text changes, so a stored case says which template produced it.
-PROMPT_TEMPLATE_VERSION = "1.0.0"
+#: 1.1.0 -- the JSON Schema is embedded in the prompt, rather than referenced by name.
+#: 1.2.0 -- the case id is derived from the clause and is no longer a field the model is offered.
+PROMPT_TEMPLATE_VERSION = "1.2.0"
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -79,11 +83,35 @@ def _slug(text: str, *, limit: int = 48) -> str:
     return slug[:limit].rstrip("-") or "clause"
 
 
+def case_id_for(clause: SpecClause) -> str:
+    """Derive a case id from the clause, deterministically.
+
+    The id is **not** the model's to choose, and that is the same rule the verdict follows. A
+    model asked for an id invents one, and it invents the same one twice: a real run against
+    ``docs/SPEC.md`` produced ``nyx_eval_case_1`` for three different clauses, which made the
+    case log unreadable -- ``current_state`` refuses a second proposal for one id, so ``nyx
+    golden list``, ``pending`` and ``export`` all raised. A derived id cannot collide unless two
+    clauses are byte-identical *and* in the same section, which is one requirement.
+
+    The digest is over the section and the text, so the same requirement stated in two sections
+    gets two ids rather than one.
+    """
+
+    digest = hashlib.sha256(f"{clause.section}\x00{clause.text}".encode("utf-8")).hexdigest()[:8]
+    slug = _slug(clause.text)
+    candidate = f"{slug}-{digest}"
+    # ``CaseId`` allows 128 characters and the pattern ^[a-z0-9][a-z0-9._-]*$. A slug longer
+    # than the budget is truncated from the *left* end of the digest side, keeping the readable
+    # part intact and the id unique.
+    return candidate[:128].rstrip("-")
+
+
 def build_draft_schema() -> dict[str, Any]:
     """The strict output contract advertised to the transport.
 
     ``expected`` is deliberately absent: the verdict is derived from the clause, not proposed
-    by the model, so there is no field through which a model could supply one.
+    by the model, so there is no field through which a model could supply one. ``case_id`` is
+    absent for the same reason and by the same evidence -- see :func:`case_id_for`.
     """
 
     return {
@@ -91,14 +119,8 @@ def build_draft_schema() -> dict[str, Any]:
         "title": "NYX eval case inputs",
         "type": "object",
         "additionalProperties": False,
-        "required": ["case_id", "title", "claim", "event", "evidence"],
+        "required": ["title", "claim", "event", "evidence"],
         "properties": {
-            "case_id": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 128,
-                "pattern": "^[a-z0-9][a-z0-9._-]*$",
-            },
             "title": {"type": "string", "minLength": 1, "maxLength": 200},
             "claim": {
                 "type": "object",
@@ -148,12 +170,19 @@ def build_draft_schema() -> dict[str, Any]:
     }
 
 
-def build_prompt(*, clause: str, section: str) -> str:
+def build_prompt(*, clause: str, section: str, schema: dict[str, Any]) -> str:
     """Compose the drafting prompt, with the requirement fenced as untrusted data.
 
     The requirement is the only untrusted content, so it is the only thing fenced. The
     instruction around it is trusted and states the rule the model must follow: it constructs
     inputs, it does not decide an outcome.
+
+    The schema is embedded verbatim, and that is the point of the parameter. A prompt that says
+    "Return JSON matching the schema" without showing the schema asks the model to match a
+    contract it has never seen: the observed response was a well-formed document in an invented
+    shape (``name``/``description``/``agent``/``event.type``), which validates against nothing.
+    ``LlmCritic._build_prompt`` embeds its schema for exactly this reason; this prompt now does
+    the same.
     """
 
     return "\n".join(
@@ -172,10 +201,12 @@ def build_prompt(*, clause: str, section: str) -> str:
             "Make the inputs realistic and specific enough that a deterministic rule could",
             "reach the outcome from them alone. Do not explain your reasoning.",
             "",
+            "Return JSON only, conforming exactly to this JSON Schema. Do not supply a case id:",
+            "it is derived from the requirement, not drafted.",
+            json.dumps(schema, indent=2, sort_keys=True),
+            "",
             "REQUIREMENT (untrusted data):",
             quote_as_untrusted(f"[{section}] {clause}"),
-            "",
-            "Return JSON matching the schema.",
         ]
     )
 
@@ -228,14 +259,18 @@ class CaseGenerator:
             )
 
         raw = self._transport.complete(
-            prompt=build_prompt(clause=clause.text, section=clause.section),
+            prompt=build_prompt(clause=clause.text, section=clause.section, schema=self._schema),
             schema=self._schema,
             timeout_seconds=self._timeout,
         )
         try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise CaseGenerationError(f"model returned invalid JSON: {exc.msg}") from exc
+            # A provider may wrap its answer in a markdown fence even when the prompt asked for
+            # JSON only. The wrapper is removed before the parse; the draft schema below is still
+            # enforced on the result, so extraction widens what is *parsed*, never what is
+            # *accepted*.
+            payload = json.loads(extract_json_document(raw))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise CaseGenerationError(f"model returned invalid JSON: {exc}") from exc
 
         try:
             jsonschema.Draft202012Validator(self._schema).validate(payload)
@@ -269,7 +304,7 @@ class CaseGenerator:
             ) from exc
 
         return EvalCase(
-            case_id=payload["case_id"],
+            case_id=case_id_for(clause),
             title=payload["title"],
             source=source,
             spec_ref=clause.text,
@@ -315,6 +350,16 @@ class CaseGenerator:
                 continue
             except LlmTransportError as exc:
                 outcomes.append(DraftOutcome(clause=clause, case=None, error=f"transport: {exc}"))
+                continue
+            except Exception as exc:  # noqa: BLE001 - one bad clause must not lose the others
+                # A model-backed transport can raise anything, and ``generate``'s contract is
+                # that one unusable clause is reported rather than aborting the run. Catching
+                # only the transport's own types let an unexpected exception escape here and
+                # take the remaining clauses with it -- the same reasoning ``LlmCritic.run``
+                # applies to its transport call.
+                outcomes.append(
+                    DraftOutcome(clause=clause, case=None, error=f"{type(exc).__name__}: {exc}")
+                )
                 continue
             outcomes.append(DraftOutcome(clause=clause, case=case))
         return outcomes

@@ -18,6 +18,7 @@ asserts the two styles send identical HTTP requests.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal, Protocol, cast
@@ -213,6 +214,80 @@ def _origin(config: LLMConfig) -> str:
         "base_url must not embed credentials; set LLMConfig.api_key instead",
         code=LLMErrorCode.INVALID_REQUEST,
     )
+
+
+_FENCED_DOCUMENT = re.compile(r"^\s*```[A-Za-z0-9_-]*[ \t]*\r?\n(.*)\r?\n?```[ \t]*$", re.DOTALL)
+
+
+def _first_json_span(text: str) -> str | None:
+    """Return the first balanced ``{...}`` or ``[...]`` span in ``text``, or ``None``.
+
+    String literals are honoured, so a brace inside a quoted value does not open or close the
+    span and an escaped quote does not end one. A span that never closes is not a span.
+    """
+
+    opener_at = -1
+    opener = ""
+    for index, char in enumerate(text):
+        if char in "{[":
+            opener_at, opener = index, char
+            break
+    if opener_at < 0:
+        return None
+
+    closer = "}" if opener == "{" else "]"
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(opener_at, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return text[opener_at : index + 1]
+    return None
+
+
+def extract_json_document(text: str) -> str:
+    """Return the JSON document inside ``text``, with any markdown wrapper removed.
+
+    Providers routinely wrap a JSON answer in a ```` ```json ```` fence even when the prompt asked
+    for JSON only. That is a wrapper, not a refusal: the model answered, and rejecting it as "not
+    valid JSON" throws a correct answer away. The failure then presents as a model-quality
+    problem when it is a plumbing one, which is how a live run came to report
+    ``"model": "error"`` on a case the model had actually answered.
+
+    This removes the wrapper and **nothing else**. It does not repair malformed JSON and it does
+    not widen what is accepted: the caller still parses the result and still validates it against
+    its own schema, so a fenced document that violates the schema is rejected exactly as an
+    unfenced one would be.
+
+    Raises ``ValueError`` when no JSON span is present rather than returning the input unchanged:
+    a pass-through would move a "no JSON here" failure one layer later into a
+    ``json.JSONDecodeError`` with a worse message, and the caller already converts ``ValueError``
+    into its own typed failure.
+    """
+
+    stripped = text.strip()
+    fenced = _FENCED_DOCUMENT.match(stripped)
+    if fenced is not None:
+        stripped = fenced.group(1).strip()
+    span = _first_json_span(stripped)
+    if span is None:
+        raise ValueError("the response contains no JSON document")
+    return span
 
 
 def _openai_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:

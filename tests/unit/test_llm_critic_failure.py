@@ -255,6 +255,44 @@ def test_invalid_json_writes_no_finding(
     _assert_no_finding(findings, runs, expected_results={"error"})
 
 
+def test_a_fenced_response_is_still_parsed(
+    service: IngestionService,
+    session_factory: SessionFactory,
+    restore_registry: None,
+) -> None:
+    """A provider wraps its answer in a markdown fence even when the prompt asked for JSON only.
+
+    Regression: a live run recorded ``"model": "error"`` with rationale "The LLM response was not
+    valid JSON" on a case the model had in fact answered. The wrapper is removed before the parse;
+    the output schema is still enforced on the result, which is what the next test asserts.
+    """
+
+    event_id, _ = _seed(service)
+    payload = _assessment(result="inconclusive")
+    transport = _FakeTransport(response=f"```json\n{json.dumps(payload)}\n```")
+
+    findings, runs = _run(session_factory, event_id=event_id, transport=transport)
+
+    _assert_no_finding(findings, runs, expected_results={"inconclusive"})
+
+
+def test_a_fenced_response_that_violates_the_schema_is_still_refused(
+    service: IngestionService,
+    session_factory: SessionFactory,
+    restore_registry: None,
+) -> None:
+    """Extraction widens what is parsed, never what is accepted."""
+
+    event_id, _ = _seed(service)
+    payload = _assessment()
+    del payload["rationale"]
+    transport = _FakeTransport(response=f"```json\n{json.dumps(payload)}\n```")
+
+    findings, runs = _run(session_factory, event_id=event_id, transport=transport)
+
+    _assert_no_finding(findings, runs, expected_results={"error"})
+
+
 def test_schema_violation_writes_no_finding(
     service: IngestionService,
     session_factory: SessionFactory,

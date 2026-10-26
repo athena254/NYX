@@ -44,6 +44,7 @@ from nyx.domain.enums import (
     Severity,
 )
 from nyx.ingestion.injection import build_model_prompt
+from nyx.llm.provider import extract_json_document
 
 CRITIC_ID = "c011-llm-critic"
 CRITIC_VERSION = "1.0.0"
@@ -304,8 +305,12 @@ class LlmCritic:
             )
 
         try:
-            payload = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+            # A provider may wrap its answer in a markdown fence even when the prompt asked for
+            # JSON only. That is a wrapper, not a refusal, so the wrapper is removed before the
+            # parse -- and the schema below is still enforced on the result, so a fenced document
+            # that violates the contract is rejected exactly as an unfenced one would be.
+            payload = json.loads(extract_json_document(raw))
+        except (json.JSONDecodeError, TypeError, ValueError):
             return fail(
                 CriticResultStatus.ERROR,
                 "The LLM response was not valid JSON. No finding was composed and no stored "

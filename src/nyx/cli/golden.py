@@ -315,6 +315,11 @@ def generate(
         raise typer.Exit(1) from exc
 
     drafted = [outcome.case for outcome in outcomes if outcome.case is not None]
+    failures = [
+        {"clause": outcome.clause.text, "section": outcome.clause.section, "error": outcome.error}
+        for outcome in outcomes
+        if outcome.error is not None
+    ]
     path.parent.mkdir(parents=True, exist_ok=True)
     from nyx.domain.base import utc_now
     from nyx.evals.store import CaseEvent, append_event
@@ -336,11 +341,15 @@ def generate(
         "clauses": len(clauses),
         "drafted": len(drafted),
         "skipped": sum(1 for outcome in outcomes if outcome.skipped is not None),
-        "failed": sum(1 for outcome in outcomes if outcome.error is not None),
+        "failed": len(failures),
         "cases": [
             {"case_id": case.case_id, "expected": case.expected.value, "status": case.status.value}
             for case in drafted
         ],
+        # A count without a reason is a command that reports a failure it cannot explain. Every
+        # clause that did not produce a case is listed with the clause text and the reason, in
+        # both output modes, so an operator can see *which* requirement failed and why.
+        "failures": failures,
     }
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
@@ -351,6 +360,9 @@ def generate(
     )
     for case in payload["cases"]:
         typer.echo(f"  {case['case_id']:36} proposed {case['expected']}")
+    for failure in failures:
+        typer.echo(f"  FAILED: {failure['clause']}")
+        typer.echo(f"          {failure['error']}")
     typer.echo("Drafts are not scorable until approved: nyx golden pending")
 
 
