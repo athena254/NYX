@@ -148,6 +148,10 @@ This plan is sequential — each slice's output is the next slice's input.
 | **F5** | **Golden set from a real spec**: generate, review, export, score | `evals/golden/cases.jsonl`, `evals/golden/golden.jsonl`, `docs/implementation/golden-set-run.md` | `tests/unit/test_eval_corpus.py` | runner output + all four |
 | **F6** | Status sync, then push so CI runs on it | `docs/implementation/roadmap.md`, `docs/implementation/acceptance-tests.md`, `docs/implementation/task-checklist.md`, `docs/implementation/HANDOFF.md`, `docs/golden-set.md` | — | `gh run list` green |
 
+**Outcome of F4–F6 (26 October 2026):** both delivered. F5's set is two cases, both approved by
+the owner — the provider refuses fifteen of the seventeen labelled clauses, which is a finding
+about dmr-X and not a defect in NYX. See `docs/implementation/golden-set-run.md` §3.
+
 Dependency order: F1 → F2 → F3 → F4 → F5 → F6.
 
 ---

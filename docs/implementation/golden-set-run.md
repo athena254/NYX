@@ -1,9 +1,9 @@
 # Golden-set run — 26 October 2026
 
-**Status:** the mechanism works end to end; **the set is incomplete.** Two cases were drafted
-from `docs/SPEC.md`, both seed and score correctly, and both are awaiting review. Fifteen of the
-seventeen labelled clauses were refused by the provider. This document records what was run,
-what each run proved, and what is still not established.
+**Status:** the mechanism works end to end; **the set is small.** Two cases were drafted from
+`docs/SPEC.md`, both seed and score correctly, and both were approved by the project owner on
+26 October 2026. Fifteen of the seventeen labelled clauses were refused by the provider. This
+document records what was run, what each run proved, and what is still not established.
 
 - Code: `src/nyx/evals/`, commands `nyx golden ...`, runner `scripts/eval_llm_critic.py`
 - Spec read: `docs/SPEC.md` → 70 clauses, 17 carrying an outcome signal, 53 with no signal
@@ -40,6 +40,29 @@ uv run python scripts/eval_llm_critic.py --corpus <exported drafts>
 
 They are **drafts**. Nothing here approves them, and `scorable_cases()` refuses to emit an
 unapproved case by any route.
+
+## 1b. The approved set, scored through the product path
+
+After the owner approved both cases (reviewer `kallmedis`, 26 October 2026):
+
+```bash
+nyx golden approve <case_id> --reviewer kallmedis
+nyx golden export                       # 2 approved cases -> evals/golden/golden.jsonl
+uv run python scripts/eval_llm_critic.py --corpus evals/golden/golden.jsonl
+```
+
+Recorded in `docs/implementation/evidence/golden-set-scored-2026-10-26.json`:
+
+```
+deterministic: 2 cases, 2 correct, accuracy 1.0
+  high-impact-actions-are-recommendations-only-in-cf6d  expected=finding  det=finding
+  security-tests-for-unauthorised-access-prompt-in-a5f1  expected=finding  det=finding
+model:        scored 0 -- "not_run", not a fabricated score
+```
+
+`nyx golden list` reports `total 2, scorable 2, pending 0`. The model leg reports `not_run`
+because a golden-set case carries no recorded model response — a skipped leg is excluded from
+precision and recall rather than counted as a false negative.
 
 ## 2. Defects found, and fixed
 
@@ -86,13 +109,16 @@ used to build a golden set from that specification.
 ## 4. What this does not establish
 
 - **The golden set is two cases, not twenty.** The brief asked for at least 20 labelled cases.
-  Two drafted, zero approved.
-- **No case is approved.** `scorable_cases()` is the single function that defines the set, and
-  it emits only approved cases. The two drafts above were scored by a probe that wrote them
-  through the export shape directly — a probe, not the product path, and it approved nothing.
+  Two drafted, both approved. The provider's refusal of 15 of 17 clauses is the binding
+  constraint — see §3 — and it is a finding about dmr-X, not a defect in NYX.
+- **The two cases are not independent of the specification they were read from.** ADR 0013
+  records this: the inputs are drafted from the spec and the label is derived from the same
+  spec's wording. Two different mechanisms, one source. The reviewer confirmed both, which is
+  what makes them count — but they cannot certify NYX against the spec it was written from.
 - **The labelling rule is untested against a real reviewer.** Its bias toward `finding` (17
-  `finding`, 0 `none`, 0 `inconclusive` on `docs/SPEC.md`) is a property of the spec's prose, and
-  the review step is what corrects it. No review has happened.
+  `finding`, 0 `none`, 0 `inconclusive` on `docs/SPEC.md`) is a property of the spec's prose. Two
+  cases were reviewed and both kept their proposed `finding` label, which is two data points,
+  not a calibration of the rule.
 - **`parse_spec` emits fragments.** Several "clauses" are mid-sentence fragments of a prose
   bullet ("reasoning gaps, drift, policy violations, security weaknesses, and"), because a
   clause is a line or bullet. That is a quality problem in the clause unit, not in the

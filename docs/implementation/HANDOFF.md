@@ -956,11 +956,11 @@ injection/provider-failure suites, and a fixture evaluation corpus and runner.
 
 **Still open**
 
-- **The golden set is drafted but not completed.** `docs/implementation/golden-set-run.md` is the
-  record. Two cases were drafted from `docs/SPEC.md`, both seed and score correctly, and **none is
-  approved** — the review step is a human gate by design (ADR 0013) and no review has happened.
-  Fifteen of the seventeen labelled clauses were refused by dmr-X's prompt-injection guardrail
-  with HTTP 400, so the set cannot be grown against this provider today.
+- **The golden set is two cases, both approved.** `docs/implementation/golden-set-run.md` is the
+  record. Two cases were drafted from `docs/SPEC.md`, both seed and score correctly, and the
+  owner approved both on 26 October 2026 (reviewer `kallmedis`). Fifteen of the seventeen
+  labelled clauses were refused by dmr-X's prompt-injection guardrail with HTTP 400, so the set
+  cannot be grown against this provider today.
 - **CI is green on the pushed commit.** `caad1f4` passed both `CI` and `Security scanning`
   (`gh run list`, 26 October 2026). The eleven commits before it had never been through a
   pipeline; they have now.
