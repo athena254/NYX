@@ -499,10 +499,12 @@ real provider.
   valid JSON on a direct re-probe. Two runs of eight cases are a sample, not a measurement.
 - **`min_accuracy: 0.125` is a collapse floor, not a quality claim.** Eight cases means one case
   is 0.125 of the score.
-- **The golden set is small but approved.** Two cases from `docs/SPEC.md`, both approved by the
-  owner and both scoring correctly through the product path. Fifteen of the seventeen labelled
-  clauses are refused by dmr-X's guardrail, so the set cannot be grown against that provider.
-  See `docs/implementation/golden-set-run.md`.
+- **The golden set is eight cases, awaiting review.** Eight cases from `docs/SPEC.md`, all
+  seedable, all reaching the expected verdict (accuracy 1.0). The guardrail that capped the set
+  at two was the *length of the instruction block*; shortening it — with the schema, the
+  injection defence and the untrusted-data fence all kept — took the yield from 2 to 8. What is
+  left is provider instability and the 20-case target. See
+  `docs/implementation/golden-set-run.md`.
 
 ---
 

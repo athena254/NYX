@@ -1,0 +1,87 @@
+{
+  "spec": "docs\\implementation\\critic-catalogue-research.md",
+  "clauses": 23,
+  "drafted": 1,
+  "skipped": 8,
+  "failed": 14,
+  "cases": [
+    {
+      "case_id": "retraction-grounds-cope-findings-are-unreliable-e86194ff",
+      "expected": "finding",
+      "status": "draft"
+    }
+  ],
+  "failures": [
+    {
+      "clause": "**Flaky tests.** A flaky test is one that passes and fails on the *same code* (Luo et al. 2014; Parry et al. 2021 \u2014 both cited in the literature). Detection requires observing both verdicts at the same commit. NYX already groups runs by (system, artifact, kind, title) in C-009 and C-007, so the same grouping identifies flakiness: same defined test, same declared commit *and* environment, one pass and one fail.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 1. What NYX can see, and therefore what it can criticise > 2. The literature, reduced to critic-shaped rules > 2.1 Test and CI evidence",
+      "error": "transport: The LLM provider did not respond before the deadline at http://127.0.0.1:3000/v1/chat/completions. No finding was composed and no stored state was changed."
+    },
+    {
+      "clause": "*Trigger:* hedging/unmeasurable markers in `Claim.statement` (\"adequate\", \"fast\", \"sufficient\", \"user-friendly\", \"maximize\", \"minimize\", \"as appropriate\", \"when required\"), combined with no linked verification evidence and no named scope field beyond `system_id`.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 2.6 Uncertainty communication > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* that the claim is false. Only that it is not checkable as written.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 2.6 Uncertainty communication > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Trigger:* `linked_claim.claim_type` is set and no linked evidence matches the type's required support.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 2.6 Uncertainty communication > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* the claim is untrue \u2014 only that its type's expected support is absent.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 2.6 Uncertainty communication > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* the event is fraudulent \u2014 only that its declared type and its evidence do not line up.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 2.6 Uncertainty communication > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* the evidence is authentic or inauthentic \u2014 only that the declared handling does not match the declared sensitivity. (ADR 0005: evidence is not proof.)",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 2.6 Uncertainty communication > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* which is the duplicate. Detection only; resolution is human.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 2.6 Uncertainty communication > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* which run is right. Flakiness *is* the finding.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly > Tier 2 \u2014 needs one new field or one new read path",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* that the suppressed outcome is true \u2014 only that the presented base is one-sided.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly > Tier 2 \u2014 needs one new field or one new read path",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* the task failed \u2014 only that the *process* shows a documented failure pattern. (Aegis, MAST, DevAgentBench all separate process from outcome.)",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly > Tier 2 \u2014 needs one new field or one new read path",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* the claim is false \u2014 only that it rests entirely on the claimant's own output.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly > Tier 2 \u2014 needs one new field or one new read path",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "*Must not claim:* the claim is wrong \u2014 only that its certainty is not proportionate to the limitations the evidence itself records.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > 3. Candidate critics > Tier 1 \u2014 high value, fits the existing contract cleanly > Tier 2 \u2014 needs one new field or one new read path",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    },
+    {
+      "clause": "**C. A cross-critic meta-critic.** A critic that receives the *other critics' results* as its context and reports only *interactions*: two critics disagreeing, two critics firing on one defect, a critic whose `no_finding` is contradicted by another's FINDING. This is the \"niche criticism\" the question asks about \u2014 it is the only shape that catches a class of defect no single rule can see. It needs a context extension (`CriticContext` currently has no field for peer results) and it must be deterministic, so it is a Phase 2-class change, not a tweak.",
+      "section": "docs\\implementation\\critic-catalogue-research.md > Tier 3 \u2014 optional, speculative, or needs a phase > 4. Do the critics collaborate? > What collaboration would look like",
+      "error": "transport: LLM provider rejected the request at http://127.0.0.1:3000/v1/chat/completions (HTTP 400)"
+    }
+  ]
+}
+EXIT=0

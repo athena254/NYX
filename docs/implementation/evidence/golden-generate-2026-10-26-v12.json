@@ -1,0 +1,92 @@
+{
+  "spec": "docs\\SPEC.md",
+  "clauses": 69,
+  "drafted": 8,
+  "skipped": 53,
+  "failed": 8,
+  "cases": [
+    {
+      "case_id": "criticism-identify-contradictions-unsupported-cl-1e682905",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "recommended-approach-do-not-call-every-evaluator-7b41d1d0",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "unauthorized-remediation-nyx-identifies-a-seriou-9fd967d8",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "evidence-storage-must-preserve-record-identity-a-2366af5d",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "acceptance-each-violation-identifies-the-exact-p-0572c956",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "replaying-the-same-accepted-event-must-not-creat-b64eb313",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "any-model-prompt-must-tell-the-model-that-eviden-df8583e3",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "avoid-metric-labels-containing-user-ids-full-cla-f5859369",
+      "expected": "finding",
+      "status": "draft"
+    }
+  ],
+  "failures": [
+    {
+      "clause": "NYX use: verify that the code tested is the code reviewed, merged, built, and deployed; detect missing or unauthorized steps.",
+      "section": "docs\\SPEC.md > in-toto-rego > 2.4 Provenance, attestations, and trustworthy records > in-toto",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 502)"
+    },
+    {
+      "clause": "Track at minimum: - false-positive rate on adjudicated findings; - false-negative rate on a labeled set of known violations; - precision and recall by finding category and severity; - percentage of serious findings with directly inspectable evidence; - percentage of high-risk findings independently verified; - rebuttal rate and rate at which NYX withdraws or downgrades findings; - time to verify and resolve; - repeated findings and recurrence after remediation; - evidence-source coverage and staleness; - evaluator and policy version changes; - performance across model providers and language/framework combinations; - cost and latency per observation and per investigation.",
+      "section": "docs\\SPEC.md > Example: DMRX reports a routing or usage outcome > 8. Threat model and defenses > 9. Self-auditing NYX",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "Exit criteria: NYX demonstrably finds seeded violations, avoids known false accusations, produces inspectable evidence, and handles appeals without silent state changes.",
+      "section": "docs\\SPEC.md > Phase 4 --- Specialist critics > Phase 5 --- Attestations and lineage > Phase 6 --- Ecosystem-wide oversight and self-audit",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "High-impact actions are recommendations only in the MVP. NYX must not independently modify, disable, deploy, delete, spend funds, or change permissions in another system.",
+      "section": "docs\\SPEC.md > 3. System boundaries and trust model > 3.1 Trust boundaries > 3.2 Safety invariants",
+      "error": "transport: The LLM provider did not respond before the deadline at http://127.0.0.1:3000/v1/chat/completions. No finding was composed and no stored state was changed."
+    },
+    {
+      "clause": "Credentials and secrets MUST NOT be stored in `metadata`.",
+      "section": "docs\\SPEC.md > 4.1 Required modules > 5. Core domain model > 5.1 MonitoredSystem",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "Detect claims such as \u201cdone\u201d, \u201cfixed\u201d, \u201ctests pass\u201d, or \u201cdeployed\u201d when the required linked verification artifact is missing, stale, failed, or refers to a different commit/build/version.",
+      "section": "docs\\SPEC.md > 7.2 Critic output contract > 8. Minimum critic pack > C-001 \u2014 Completion claim vs. verification",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "Deduplication must not merge distinct incidents solely because their text looks similar.",
+      "section": "docs\\SPEC.md > 11. Storage, idempotency, and retention > 11.1 Storage > 11.2 Idempotency",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 502)"
+    },
+    {
+      "clause": "Security tests for unauthorised access, prompt injection, SSRF/path traversal, payload abuse, and secret leakage.",
+      "section": "docs\\SPEC.md > 16. Observability and operations > 17. Test strategy > 17.1 Required layers",
+      "error": "transport: The LLM provider did not respond before the deadline at http://127.0.0.1:3000/v1/chat/completions. No finding was composed and no stored state was changed."
+    }
+  ]
+}
+EXIT=0

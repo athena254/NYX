@@ -1,0 +1,16 @@
+CLAUSE 1: reasoning gaps, drift, policy violations, security weaknesse
+  1. baseline full prompt                        -> HTTP 400
+  2. short instruction + schema                  -> OK
+  3. short instruction + schema + fenced clause  -> HTTP 502
+  4. medium instruction + schema                 -> HTTP 503
+CLAUSE 2: retrieval answer → Ragas-style groundedness check; - rule vi
+  1. baseline full prompt                        -> HTTP 400
+  2. short instruction + schema                  -> OK
+  3. short instruction + schema + fenced clause  -> HTTP 503
+  4. medium instruction + schema                 -> OK
+CLAUSE 3: built, and deployed; detect missing or unauthorized steps.
+  1. baseline full prompt                        -> HTTP 400
+  2. short instruction + schema                  -> OK
+  3. short instruction + schema + fenced clause  -> OK
+  4. medium instruction + schema                 -> HTTP 503
+EXIT=0

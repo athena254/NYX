@@ -1,0 +1,13 @@
+CLAUSE 1: reasoning gaps, drift, policy violations, security weak
+  compact + fenced clause                  -> HTTP 503
+  compact + plain clause                   -> HTTP 503
+CLAUSE 2: retrieval answer → Ragas-style groundedness check; - ru
+  compact + fenced clause                  -> HTTP 503
+  compact + plain clause                   -> OK
+CLAUSE 3: built, and deployed; detect missing or unauthorized ste
+  compact + fenced clause                  -> HTTP 503
+  compact + plain clause                   -> OK
+CLAUSE 4: false-negative rate on a labeled set of known violation
+  compact + fenced clause                  -> HTTP 503
+  compact + plain clause                   -> HTTP 503
+EXIT=0

@@ -1,0 +1,16 @@
+CLAUSE 1: reasoning gaps, drift, policy violations, security weak
+  A. short, no defence (exp 5 winner)                  -> OK
+  B. short + one-line defence, clause plain            -> OK
+  C. short + defence + fenced clause                   -> HTTP 502
+  D. defence only, no body (minimal)                   -> HTTP 503
+CLAUSE 2: retrieval answer → Ragas-style groundedness check; - ru
+  A. short, no defence (exp 5 winner)                  -> HTTP 503
+  B. short + one-line defence, clause plain            -> OK
+  C. short + defence + fenced clause                   -> HTTP 503
+  D. defence only, no body (minimal)                   -> OK
+CLAUSE 3: built, and deployed; detect missing or unauthorized ste
+  A. short, no defence (exp 5 winner)                  -> OK
+  B. short + one-line defence, clause plain            -> OK
+  C. short + defence + fenced clause                   -> OK
+  D. defence only, no body (minimal)                   -> HTTP 503
+EXIT=0

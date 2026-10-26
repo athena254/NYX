@@ -1,0 +1,15 @@
+CLAUSE 1: reasoning gaps, drift, policy violations, security weaknesses, and
+  1. baseline full prompt                          -> HTTP 400
+  2. schema in system, instruction+clause in user  -> HTTP 503
+  3. instruction in system, schema+clause in user  -> HTTP 502
+  4. clause in system, instruction+schema in user  -> HTTP 503
+  5. compact schema, all in user                   -> HTTP 503
+  6. full prompt, schema removed                   -> HTTP 400
+CLAUSE 2: retrieval answer → Ragas-style groundedness check; - rule violation →
+  1. baseline full prompt                          -> HTTP 400
+  2. schema in system, instruction+clause in user  -> HTTP 503
+  3. instruction in system, schema+clause in user  -> OK
+  4. clause in system, instruction+schema in user  -> HTTP 503
+  5. compact schema, all in user                   -> OK
+  6. full prompt, schema removed                   -> HTTP 400
+EXIT=0

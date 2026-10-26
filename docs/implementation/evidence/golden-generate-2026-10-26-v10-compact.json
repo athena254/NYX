@@ -1,0 +1,92 @@
+{
+  "spec": "docs\\SPEC.md",
+  "clauses": 69,
+  "drafted": 8,
+  "skipped": 53,
+  "failed": 8,
+  "cases": [
+    {
+      "case_id": "exit-criteria-nyx-demonstrably-finds-seeded-viol-9b8c1f5a",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "unauthorized-remediation-nyx-identifies-a-seriou-9fd967d8",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "evidence-storage-must-preserve-record-identity-a-2366af5d",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "credentials-and-secrets-must-not-be-stored-in-me-d3a354d4",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "replaying-the-same-accepted-event-must-not-creat-b64eb313",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "deduplication-must-not-merge-distinct-incidents-9957fd5a",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "avoid-metric-labels-containing-user-ids-full-cla-f5859369",
+      "expected": "finding",
+      "status": "draft"
+    },
+    {
+      "case_id": "security-tests-for-unauthorised-access-prompt-in-a5f1dbba",
+      "expected": "finding",
+      "status": "draft"
+    }
+  ],
+  "failures": [
+    {
+      "clause": "**Criticism:** Identify contradictions, unsupported claims, reasoning gaps, drift, policy violations, security weaknesses, and undesirable outcomes.",
+      "section": "docs\\SPEC.md > NYX --- Evidence-Backed Critic and Ecosystem Oversight > Open-source research, architecture, repository shortlist, and implementation plan > Executive recommendation",
+      "error": "missing_system_placeholder: the drafted claim scope must set system_id to the literal string @system; a case that names a system of its own cannot be seeded"
+    },
+    {
+      "clause": "**Recommended approach:** do not call every evaluator on every event. Use a routing layer to select a specialist based on the suspected failure: - unsupported factual claim \u2192 source/claim verification; - agent trajectory or task-quality issue \u2192 Inspect AI/DeepEval-style evaluation; - adversarial/security concern \u2192 Promptfoo/garak; - retrieval answer \u2192 Ragas-style groundedness check; - rule violation \u2192 deterministic policy engine; - software defect \u2192 tests, static analysis, dependency/security scanning.",
+      "section": "docs\\SPEC.md > garak > DeepEval > Ragas",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 502)"
+    },
+    {
+      "clause": "NYX use: verify that the code tested is the code reviewed, merged, built, and deployed; detect missing or unauthorized steps.",
+      "section": "docs\\SPEC.md > in-toto-rego > 2.4 Provenance, attestations, and trustworthy records > in-toto",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "Track at minimum: - false-positive rate on adjudicated findings; - false-negative rate on a labeled set of known violations; - precision and recall by finding category and severity; - percentage of serious findings with directly inspectable evidence; - percentage of high-risk findings independently verified; - rebuttal rate and rate at which NYX withdraws or downgrades findings; - time to verify and resolve; - repeated findings and recurrence after remediation; - evidence-source coverage and staleness; - evaluator and policy version changes; - performance across model providers and language/framework combinations; - cost and latency per observation and per investigation.",
+      "section": "docs\\SPEC.md > Example: DMRX reports a routing or usage outcome > 8. Threat model and defenses > 9. Self-auditing NYX",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 503)"
+    },
+    {
+      "clause": "High-impact actions are recommendations only in the MVP. NYX must not independently modify, disable, deploy, delete, spend funds, or change permissions in another system.",
+      "section": "docs\\SPEC.md > 3. System boundaries and trust model > 3.1 Trust boundaries > 3.2 Safety invariants",
+      "error": "transport: The LLM provider did not respond before the deadline at http://127.0.0.1:3000/v1/chat/completions. No finding was composed and no stored state was changed."
+    },
+    {
+      "clause": "Detect claims such as \u201cdone\u201d, \u201cfixed\u201d, \u201ctests pass\u201d, or \u201cdeployed\u201d when the required linked verification artifact is missing, stale, failed, or refers to a different commit/build/version.",
+      "section": "docs\\SPEC.md > 7.2 Critic output contract > 8. Minimum critic pack > C-001 \u2014 Completion claim vs. verification",
+      "error": "missing_system_placeholder: the drafted claim scope must set system_id to the literal string @system; a case that names a system of its own cannot be seeded"
+    },
+    {
+      "clause": "Acceptance: each violation identifies the exact policy ID/version, input record, and decision result.",
+      "section": "docs\\SPEC.md > C-003 \u2014 Evidence freshness > C-004 \u2014 Provenance gap > C-005 \u2014 Policy violation",
+      "error": "transport: LLM provider unavailable at http://127.0.0.1:3000/v1/chat/completions (HTTP 502)"
+    },
+    {
+      "clause": "Any model prompt must tell the model that evidence content is untrusted and that instructions found inside evidence must not be followed. This is a defence-in-depth measure, not a substitute for tool permission isolation.",
+      "section": "docs\\SPEC.md > 11.2 Idempotency > 11.3 Retention > 12. Security and privacy requirements",
+      "error": "invalid_output: an evidence item is not a valid case item: 2 error(s)"
+    }
+  ]
+}
+EXIT=0

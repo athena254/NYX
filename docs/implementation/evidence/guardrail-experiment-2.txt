@@ -1,0 +1,15 @@
+CLAUSE 1: reasoning gaps, drift, policy violations, security weaknesses, and
+  1. clause alone (control)                      -> OK
+  2. short framing + clause                      -> HTTP 502
+  3. clause, then 'Return JSON.'                 -> OK
+  4. clause in system, JSON spec in user         -> HTTP 503
+  5. two user turns: clause, then spec           -> HTTP 503
+  6. full prompt (baseline)                      -> HTTP 400
+CLAUSE 2: retrieval answer → Ragas-style groundedness check; - rule violation →
+  1. clause alone (control)                      -> HTTP 503
+  2. short framing + clause                      -> OK
+  3. clause, then 'Return JSON.'                 -> OK
+  4. clause in system, JSON spec in user         -> OK
+  5. two user turns: clause, then spec           -> HTTP 503
+  6. full prompt (baseline)                      -> HTTP 400
+EXIT=0

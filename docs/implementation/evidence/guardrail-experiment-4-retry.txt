@@ -1,0 +1,13 @@
+CLAUSE 1: reasoning gaps, drift, policy violations, security weaknesse
+   attempt 1 -> HTTP 400
+   attempt 2 -> HTTP 400
+   attempt 3 -> HTTP 400
+CLAUSE 2: retrieval answer → Ragas-style groundedness check; - rule vi
+   attempt 1 -> HTTP 400
+   attempt 2 -> HTTP 400
+   attempt 3 -> HTTP 400
+CLAUSE 3: built, and deployed; detect missing or unauthorized steps.
+   attempt 1 -> HTTP 400
+   attempt 2 -> HTTP 400
+   attempt 3 -> HTTP 400
+EXIT=0

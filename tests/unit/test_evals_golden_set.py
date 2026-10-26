@@ -210,7 +210,8 @@ def test_prompt_states_that_the_verdict_is_not_the_models_to_decide() -> None:
         schema=build_draft_schema(),
     )
 
-    assert "ALREADY been determined" in prompt
+    assert "already determined" in prompt
+    assert "do not decide it" in prompt
     assert "SPEC > C-003" in prompt
     assert "A stale report is a finding." in prompt
 
@@ -523,6 +524,108 @@ def test_a_draft_with_no_claim_scope_at_all_is_refused() -> None:
     assert excinfo.value.code == "missing_system_placeholder"
 
 
+def test_the_draft_schema_describes_the_scope_shape() -> None:
+    """The consumer's scope is a typed object, so the draft schema must say so.
+
+    Regression: the model invented ``"period": "2023-01-01T00:00:00Z/2023-01-02T00:00:00Z"``
+    -- a string -- because the draft schema said only ``{"type": "object"}``. The case was
+    refused at seed time with ``Input should be a valid dictionary or instance of Period``.
+    """
+
+    schema = build_draft_schema()
+    scope = schema["properties"]["claim"]["properties"]["scope"]
+    item_scope = schema["properties"]["evidence"]["items"]["properties"]["scope"]
+
+    assert scope is item_scope, "the claim and the evidence share one scope contract"
+    assert scope["required"] == ["system_id"]
+    assert scope["properties"]["period"]["type"] == "object"
+    assert scope["properties"]["period"]["required"] == ["from"]
+
+
+def test_a_string_period_is_refused_at_draft_time() -> None:
+    payload = json.loads(_draft_response())
+    payload["claim"]["scope"] = {
+        "system_id": "@system",
+        "artifact": "demo",
+        "period": "2023-01-01T00:00:00Z/2023-01-02T00:00:00Z",
+    }
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    with pytest.raises(CaseGenerationError) as excinfo:
+        generator.draft(clauses[0], proposed, source="S")
+
+    assert excinfo.value.code == "invalid_period"
+
+
+def test_an_object_period_is_accepted() -> None:
+    payload = json.loads(_draft_response())
+    payload["claim"]["scope"] = {
+        "system_id": "@system",
+        "artifact": "demo",
+        "period": {"from": "2023-01-01T00:00:00Z", "to": "2023-01-02T00:00:00Z"},
+    }
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    case = generator.draft(clauses[0], proposed, source="S")
+
+    assert case.claim["scope"]["period"]["from"] == "2023-01-01T00:00:00Z"
+
+
+def test_a_naive_datetime_in_the_period_is_refused() -> None:
+    """The domain refuses a naive datetime; the draft must not accept one.
+
+    Regression: the model sent ``"from": "2023-01-01T00:00:00"`` with no offset, and the
+    case was refused at seed time with ``datetime must be timezone-aware``. The draft schema
+    now requires an offset and the generator validates against the real ``Period``.
+    """
+
+    payload = json.loads(_draft_response())
+    payload["claim"]["scope"] = {
+        "system_id": "@system",
+        "artifact": "demo",
+        "period": {"from": "2023-01-01T00:00:00"},
+    }
+    generator = _generator(_FakeTransport(json.dumps(payload)))
+    clauses = parse_spec("A stale report is a finding.", source="S")
+    proposed = propose_label(clauses[0].text)
+    assert proposed is not None
+
+    with pytest.raises(CaseGenerationError) as excinfo:
+        generator.draft(clauses[0], proposed, source="S")
+
+    assert excinfo.value.code == "invalid_period"
+
+
+def test_the_prompt_keeps_the_defence_the_schema_and_the_fence() -> None:
+    """Shortening the instruction must not shorten the safety properties.
+
+    The long prompt was refused by the provider's guardrail; the short one is not. What may
+    not be traded away for that is the injection defence, the schema, or the fence around the
+    requirement -- so this pins all three.
+    """
+
+    prompt = build_prompt(
+        clause="A stale report is a finding.",
+        section="SPEC > C-003",
+        schema=build_draft_schema(),
+    )
+
+    # The injection defence.
+    assert "instruction to you" in prompt
+    # The schema, verbatim.
+    assert json.dumps(build_draft_schema(), indent=2, sort_keys=True) in prompt
+    # The requirement is fenced as untrusted data, and the fence cannot be closed from inside.
+    assert prompt.count("<<<NYX-UNTRUSTED-EVIDENCE-BEGIN>>>") == 1
+    assert prompt.count("<<<NYX-UNTRUSTED-EVIDENCE-END>>>") == 1
+    assert "untrusted data" in prompt.lower()
+
+
 def test_the_prompt_states_the_system_placeholder_convention() -> None:
     """The convention the consumer depends on must be visible in the prompt, not inferred."""
 
@@ -533,6 +636,27 @@ def test_the_prompt_states_the_system_placeholder_convention() -> None:
     )
 
     assert "@system" in prompt
+
+
+def test_the_instruction_block_is_short() -> None:
+    """The long instruction block was what the provider's guardrail refused.
+
+    Regression: ~1600 characters of instruction took 15 of 17 spec clauses to a deterministic
+    HTTP 400. The block is now the essentials. The bound is generous -- the schema alone is
+    ~2800 characters -- so this catches a return to verbosity, not a wording change.
+    """
+
+    prompt = build_prompt(
+        clause="A stale report is a finding.",
+        section="S",
+        schema=build_draft_schema(),
+    )
+    schema_json = json.dumps(build_draft_schema(), indent=2, sort_keys=True)
+    instruction = prompt.replace(schema_json, "").replace("A stale report is a finding.", "")
+
+    assert len(instruction) < 1200, (
+        f"the instruction block is {len(instruction)} characters; the guardrail refused it at ~1600"
+    )
 
 
 def test_a_long_clause_is_still_recorded() -> None:
@@ -678,8 +802,8 @@ def test_a_fenced_draft_response_is_still_parsed() -> None:
     assert case.claim["statement"] == "All tests pass for commit abc123."
 
 
-def test_a_fenced_response_that_violates_the_schema_is_still_refused() -> None:
-    """Extraction widens what is parsed, never what is accepted."""
+def test_a_response_that_violates_the_schema_is_still_refused() -> None:
+    """A specific rule fires first; anything it does not cover still hits the schema."""
 
     transport = _FakeTransport('```json\n{"name": "invented shape"}\n```')
     generator = _generator(transport)
@@ -687,9 +811,18 @@ def test_a_fenced_response_that_violates_the_schema_is_still_refused() -> None:
     proposed = propose_label(clauses[0].text)
     assert proposed is not None
 
+    # No claim at all: the contract check names the rule the model broke.
     with pytest.raises(CaseGenerationError) as excinfo:
         generator.draft(clauses[0], proposed, source="S")
+    assert excinfo.value.code == "missing_system_placeholder"
 
+    # A complete, well-scoped draft that names a nonexistent evidence kind: the contract
+    # checks pass and the schema is what refuses it.
+    payload = json.loads(_draft_response())
+    payload["evidence"][0]["kind"] = "in-toto_attestation"
+    bad_kind = _generator(_FakeTransport(json.dumps(payload)))
+    with pytest.raises(CaseGenerationError) as excinfo:
+        bad_kind.draft(clauses[0], proposed, source="S")
     assert excinfo.value.code == "invalid_output"
 
 

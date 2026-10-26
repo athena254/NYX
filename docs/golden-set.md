@@ -116,16 +116,18 @@ Its model-leg metrics are `null` with `scored: 0`, not a fabricated score.
 
 ## What this does not establish
 
-- **The set is two cases, both approved.** The brief asks for at least 20 labelled cases. Two
-  were drafted from `docs/SPEC.md` and the project owner approved both on 26 October 2026; both
-  score through the product path (`nyx golden export` → `scripts/eval_llm_critic.py --corpus`)
-  with the deterministic pack reaching the expected verdict on each. `docs/implementation/
-  golden-set-run.md` records every run and every defect.
-- **The provider refuses most of the spec.** Fifteen of the seventeen labelled clauses were
-  refused with HTTP 400 "Detected System Prompt Injection". The same clause texts are accepted
-  when sent individually, so the block is a property of the request pattern rather than of any
-  clause — but a 4-second pause between clauses did not clear it, and the exact trigger is not
-  settled.
+- **The set is eight cases, none of them approved yet.** The brief asks for at least 20. Eight
+  were drafted from `docs/SPEC.md`, all seed through the ingestion gateway, and all reach the
+  expected verdict (8 correct, accuracy 1.0). They are drafts awaiting review. The provider's
+  guardrail is no longer the constraint — it was the *length of the instruction block*, and
+  shortening it took the yield from 2 cases to 8. What is left is provider instability
+  (8 of 15 labelled clauses refused with HTTP 502/503) and the 20-case target.
+  `docs/implementation/golden-set-run.md` records every run and every defect.
+- **The provider refuses most of the spec — but the trigger was ours, and it is fixed.** The
+  full instruction block (~1600 chars) was refused deterministically; a compact one (~700 chars)
+  with the schema, the injection defence and the fence all kept is not. Six experiments are
+  recorded in `docs/implementation/evidence/guardrail-experiment-{2..7}.txt`. What remains is
+  provider instability (HTTP 502/503), not the guardrail.
 - **The labelling rule is biased toward `finding`.** Run against `docs/SPEC.md` it proposes
   17 `finding` labels, 0 `none` and 0 `inconclusive`, because the specification is written
   mostly as "X is a finding". The rule is a drafting aid, not a balanced classifier, and the
