@@ -961,5 +961,6 @@ injection/provider-failure suites, and a fixture evaluation corpus and runner.
   approved** — the review step is a human gate by design (ADR 0013) and no review has happened.
   Fifteen of the seventeen labelled clauses were refused by dmr-X's prompt-injection guardrail
   with HTTP 400, so the set cannot be grown against this provider today.
-- **Nothing here has been through CI.** The last green pipeline was on `676b8d9`; everything since
-  is unpushed as of this writing.
+- **CI is green on the pushed commit.** `caad1f4` passed both `CI` and `Security scanning`
+  (`gh run list`, 26 October 2026). The eleven commits before it had never been through a
+  pipeline; they have now.
