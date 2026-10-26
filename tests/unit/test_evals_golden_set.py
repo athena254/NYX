@@ -247,6 +247,52 @@ def test_prompt_embeds_the_schema_the_model_must_match() -> None:
         assert key in prompt
 
 
+def test_a_requirement_wrapped_across_two_lines_is_one_clause() -> None:
+    """A clause is a requirement, not a line.
+
+    Regression: ``docs/SPEC.md`` wraps its prose at ~78 columns, so a requirement written
+    across two lines was cut in half. The tail -- "NYX must retain the underlying evidence and
+    limitations rather than" -- became a clause of its own and was offered to the model as a
+    requirement. Markdown calls this a paragraph (or a lazy bullet continuation); either way it
+    is one statement, not two.
+    """
+
+    text = (
+        "NYX must retain the underlying evidence and limitations rather than\n"
+        "converting every result into a simplistic confidence score.\n"
+    )
+
+    clauses = parse_spec(text, source="SPEC")
+
+    assert len(clauses) == 1
+    assert clauses[0].text == (
+        "NYX must retain the underlying evidence and limitations rather than "
+        "converting every result into a simplistic confidence score."
+    )
+
+
+def test_two_bullets_stay_two_clauses() -> None:
+    """Joining a paragraph must not merge a bullet list into one long sentence."""
+
+    clauses = parse_spec(
+        "- A stale report must be reported as stale.\n- A missing verifier is a finding.\n",
+        source="S",
+    )
+
+    assert [clause.text for clause in clauses] == [
+        "A stale report must be reported as stale.",
+        "A missing verifier is a finding.",
+    ]
+
+
+def test_a_blank_line_ends_a_paragraph() -> None:
+    clauses = parse_spec(
+        "A stale report is a finding.\n\nA missing verifier is a finding.\n", source="S"
+    )
+
+    assert len(clauses) == 2
+
+
 def test_the_pause_between_clauses_is_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
     """A burst trips the provider's guardrail; a pause does not.
 
@@ -257,8 +303,10 @@ def test_the_pause_between_clauses_is_configurable(monkeypatch: pytest.MonkeyPat
     sleeps: list[float] = []
     monkeypatch.setattr("nyx.evals.generate.time.sleep", sleeps.append)
     transport = _FakeTransport(_draft_response())
+    # A bullet list: two adjacent plain lines are one markdown paragraph, so they are one
+    # clause; two bullets are two.
     clauses = parse_spec(
-        "A stale report is a finding.\nA missing verifier is a finding.", source="S"
+        "- A stale report is a finding.\n- A missing verifier is a finding.", source="S"
     )
     assert len(clauses) == 2
 
@@ -298,7 +346,7 @@ def test_the_case_id_is_derived_from_the_clause_not_the_models_choice() -> None:
     response = _draft_response()
     generator = _generator(_FakeTransport(response))
     clauses = parse_spec(
-        "A stale report is a finding.\nA missing verifier is a finding.", source="S"
+        "- A stale report is a finding.\n- A missing verifier is a finding.", source="S"
     )
     assert len(clauses) == 2
 

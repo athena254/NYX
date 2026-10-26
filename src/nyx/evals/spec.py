@@ -139,35 +139,69 @@ def parse_spec(text: str, *, source: str = "<memory>") -> list[SpecClause]:
     Headings, fenced code blocks, and table rows are not clauses. A clause must carry a
     normative keyword and be long enough to state a requirement, so an acronym list or a
     changelog line does not become a case.
+
+    A bullet is joined with the indented lines that continue it. Without that, a
+    requirement written across two lines is cut in half: the first line becomes a clause and
+    the rest becomes a fragment with its own, unrelated wording. ``docs/SPEC.md`` states its
+    requirements exactly that way, and the first live run produced clauses like
+    ``"reasoning gaps, drift, policy violations, security weaknesses, and"`` — the tail of a
+    sentence, offered to a model as a requirement. A clause is a requirement, not a line.
     """
 
     clauses: list[SpecClause] = []
     headings: list[str] = []
     in_fence = False
+    #: The paragraph or bullet currently being accumulated. Empty between blocks.
+    buffer: list[str] = []
+
+    def flush() -> None:
+        if not buffer:
+            return
+        joined = " ".join(buffer).strip()
+        buffer.clear()
+        if len(joined) < _MIN_CLAUSE_CHARS or not _NORMATIVE.search(joined):
+            return
+        # A spec nests deeply, and a ref that walks six headings is not a ref a reader can
+        # scan. The source plus the three most specific headings locate the clause without
+        # reproducing its whole ancestry.
+        ref = " > ".join([source, *headings[-3:]])
+        clauses.append(SpecClause(ref=ref, section=ref, text=joined))
 
     for raw in text.splitlines():
         if _FENCE.match(raw):
             in_fence = not in_fence
+            flush()
             continue
         if in_fence:
             continue
 
         heading = _HEADING.match(raw)
         if heading is not None:
+            flush()
             headings.append(heading.group(1).strip())
             continue
-        if not raw.strip() or raw.lstrip().startswith(("|", ">", "<!--")):
+        if not raw.strip():
+            flush()
+            continue
+        if raw.lstrip().startswith(("|", ">", "<!--")):
             continue
 
-        line = _BULLET.sub("", raw).strip()
-        if len(line) < _MIN_CLAUSE_CHARS or not _NORMATIVE.search(line):
+        if _BULLET.match(raw):
+            # A new bullet ends the previous block: a bullet list is a list of requirements,
+            # not one long sentence.
+            flush()
+            buffer.append(_BULLET.sub("", raw).strip())
             continue
-        # A spec nests deeply, and a ref that walks six headings is not a ref a reader can
-        # scan. The source plus the three most specific headings locate the clause without
-        # reproducing its whole ancestry.
-        ref = " > ".join([source, *headings[-3:]])
-        clauses.append(SpecClause(ref=ref, section=ref, text=line))
 
+        # A plain line continues the block above it. This is the fix for the clause unit:
+        # ``docs/SPEC.md`` wraps its prose at ~78 columns, so a requirement written across
+        # two lines was being cut in half and the tail -- "NYX must retain the underlying
+        # evidence and limitations rather than" -- was offered to the model as a requirement.
+        # Markdown calls this a paragraph (or a lazy bullet continuation); either way it is
+        # one statement, not two.
+        buffer.append(raw.strip())
+
+    flush()
     return clauses
 
 
