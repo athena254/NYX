@@ -16,9 +16,30 @@ from sqlalchemy import Engine
 
 
 def repository_root() -> Path:
-    """Return the repository root inferred from this module's location."""
+    """Return the repository root inferred from this module's location.
 
-    return Path(__file__).resolve().parents[3]
+    In a frozen (PyInstaller) build the repository data (alembic.ini, migrations/,
+    docs/openapi.json) is shipped inside the bundle's extraction dir, so prefer that
+    when it actually contains the expected files.
+    """
+    import os
+    import sys
+
+    candidates: list[Path] = []
+    env_root = os.environ.get("NYX_REPO_ROOT")
+    if env_root:
+        candidates.append(Path(env_root))
+    frozen = getattr(sys, "frozen", False)
+    if frozen:
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass))
+    candidates.append(Path(__file__).resolve().parents[3])
+    for candidate in candidates:
+        if (candidate / "alembic.ini").exists():
+            return candidate
+    return candidates[-1]
+
 
 
 @dataclass(frozen=True)

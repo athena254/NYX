@@ -32,6 +32,11 @@ tool-output/
 # Local scratch databases and probe runs
 tmp/
 
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
 # OS
 Thumbs.db
 desktop.ini
