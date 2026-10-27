@@ -54,7 +54,12 @@ jobs:
         shell: bash
         run: |
           "./dist/${{ matrix.artifact }}${{ matrix.ext }}" --help
+          export NYX_DATABASE_URL="sqlite:///./smoke.sqlite3"
+          export NYX_DATA_DIR="$PWD/smoke-data"
+          mkdir -p "$NYX_DATA_DIR"
+          uv run alembic upgrade head
           "./dist/${{ matrix.artifact }}${{ matrix.ext }}" doctor
+          rm -f smoke.sqlite3
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
