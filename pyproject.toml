@@ -1,6 +1,6 @@
 [project]
 name = "nyx"
-version = "0.1.0"
+version = "0.0.1"
 description = "NYX - evidence-backed critic and ecosystem oversight service"
 readme = "README.md"
 license = "Apache-2.0"

@@ -74,6 +74,7 @@ def compose_finding(
     _validate_observation_references(session, result)
     _validate_category_requirements(result)
     _validate_inspectable(result)
+    _validate_scoped(result)
 
     target_type, target_id = _target_identity(result)
     key = dedupe_key(
@@ -197,6 +198,29 @@ def _validate_inspectable(result: CriticResult) -> None:
         )
     if not result.claim_ids and not result.event_ids:
         raise FindingCompositionError("a finding must reference the claim or event it assesses.")
+
+
+def _validate_scoped(result: CriticResult) -> None:
+    """Refuse to compose a finding whose scope does not narrow beyond the system id.
+
+    ``Finding`` requires a narrowed scope, exactly as ``Claim`` does, and an event whose
+    payload carries no artifact, commit or environment yields a bare system scope by design --
+    ``_event_scope`` says so in its docstring. A critic that returns ``FINDING`` for such an
+    event therefore produced a finding the domain cannot store.
+
+    Regression: ``POST /api/v1/critics/run`` returned 500 on any event without a narrowing
+    payload. C-010 returned a finding for a bare system scope, ``Finding`` raised
+    ``finding scope must narrow beyond the system id``, and nothing in the request path caught
+    it. Checking the precondition here converts a 500 into a refused composition with a
+    legible reason -- the same treatment every other composition precondition gets.
+    """
+
+    if not result.scope.has_detail():
+        raise FindingCompositionError(
+            "a finding scope must narrow beyond the system id (artifact, commit, environment, "
+            "period, or conditions); a critic that returns a finding for a bare system scope "
+            "is reporting an issue it cannot locate."
+        )
 
 
 def _validate_confirmed_invariant(result: CriticResult) -> None:

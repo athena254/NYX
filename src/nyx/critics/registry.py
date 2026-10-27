@@ -32,7 +32,7 @@ from nyx.domain.enums import CriticResultStatus
 from nyx.domain.events import Event
 from nyx.domain.evidence import EvidenceItem
 from nyx.domain.observation import Observation
-from nyx.findings.composer import compose_finding
+from nyx.findings.composer import FindingCompositionError, compose_finding
 from nyx.findings.models import CriticRun, Finding
 from nyx.ingestion.redaction import redact
 from nyx.storage.repositories.claims import ClaimRepository
@@ -175,9 +175,25 @@ def run_selected(
 
         finding_id: str | None = None
         if result.result == CriticResultStatus.FINDING:
-            finding = compose_finding(session, result=result, run=run)
-            CriticRunRepository(session).link_finding(run.id, finding.id)
-            finding_id = finding.id
+            try:
+                finding = compose_finding(session, result=result, run=run)
+            except FindingCompositionError as exc:
+                # A refused composition is a finding about the critic, not a server error.
+                # The run row is rolled back with the finding that was never written, and the
+                # outcome records the refusal -- so one critic that steps outside its declared
+                # scope cannot take the whole request down with it.
+                #
+                # Regression: an event with no narrowing payload produced a bare system scope,
+                # C-010 returned a finding for it, and the unguarded compose raised through to
+                # a 500 on POST /api/v1/critics/run.
+                result = _error_result(critic, exc, context)
+                run.result = result.result
+                run.rationale = result.rationale
+                run.failure_details = _redact_failure(exc)
+                session.flush()
+            else:
+                CriticRunRepository(session).link_finding(run.id, finding.id)
+                finding_id = finding.id
 
         outcomes.append(
             CriticRunOutcome(
