@@ -62,7 +62,7 @@ def register_evidence(
 ) -> EvidenceItem:
     """Register an evidence item or reference."""
 
-    del response, principal
+    del response
     try:
         required_capability_for_access_policy(evidence.access_policy_ref)
     except ValueError as exc:
@@ -79,7 +79,10 @@ def register_evidence(
         ) from exc
 
     result = service.register_evidence(
-        evidence, request_id=request_id_for(request), idempotency_key=idempotency_key
+        evidence,
+        request_id=request_id_for(request),
+        idempotency_key=idempotency_key,
+        submitted_by=principal.id,
     )
     if result.status != "created":
         assert result.error is not None  # nosec B101 - invariant for non-created results

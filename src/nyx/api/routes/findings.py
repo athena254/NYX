@@ -19,43 +19,15 @@ from sqlalchemy.orm import Session
 
 from nyx.api.deps import get_finding_service, get_session
 from nyx.api.errors import ApiError
+from nyx.api.evidence_projection import finding_depends_on_unreadable_evidence, project_finding
 from nyx.auth.dependency import current_principal
 from nyx.auth.principal import AuthenticatedPrincipal
-from nyx.domain.enums import FindingCategory, FindingStatus, Sensitivity, Severity
+from nyx.domain.enums import FindingCategory, FindingStatus, Severity
 from nyx.error_codes import ErrorCode
-from nyx.findings.lifecycle import Capability
 from nyx.findings.models import Finding
 from nyx.findings.service import DEFAULT_PAGE_LIMIT, FindingPage, FindingQuery, FindingService
-from nyx.storage.repositories.evidence import EvidenceRepository
 
 router = APIRouter(prefix="/findings", tags=["findings"])
-
-_TOMBSTONE = (
-    "Evidence {evidence_id} is classified 'restricted'; its payload is omitted "
-    "because the caller lacks the 'evidence.restricted' capability."
-)
-
-
-def _tombstone_restricted(
-    finding: Finding,
-    repository: EvidenceRepository,
-    *,
-    may_read_restricted: bool,
-) -> Finding:
-    """Return ``finding`` with a tombstone for restricted evidence content it references."""
-
-    if may_read_restricted:
-        return finding
-    omitted = [
-        evidence_id
-        for evidence_id in finding.evidence_ids
-        if (item := repository.get(evidence_id)) is not None
-        and item.sensitivity is Sensitivity.RESTRICTED
-    ]
-    if not omitted:
-        return finding
-    notes = [_TOMBSTONE.format(evidence_id=evidence_id) for evidence_id in omitted]
-    return finding.model_copy(update={"limitations": [*finding.limitations, *notes][:32]})
 
 
 @router.get("", response_model=FindingPage)
@@ -90,14 +62,17 @@ def list_findings(
             limit=limit,
         )
     )
-    may_read_restricted = Capability.EVIDENCE_RESTRICTED in principal.capabilities
-    if may_read_restricted or not page.items:
+    if not page.items:
         return page
-    repository = EvidenceRepository(session)
     return page.model_copy(
         update={
             "items": [
-                _tombstone_restricted(finding, repository, may_read_restricted=may_read_restricted)
+                project_finding(
+                    finding,
+                    mask_derived_content=finding_depends_on_unreadable_evidence(
+                        session, finding, principal
+                    ),
+                )
                 for finding in page.items
             ]
         }
@@ -122,8 +97,7 @@ def get_finding(
     finding = service.get_finding(finding_id)
     if finding is None:
         raise ApiError(ErrorCode.NOT_FOUND, message="Finding not found.")
-    return _tombstone_restricted(
+    return project_finding(
         finding,
-        EvidenceRepository(session),
-        may_read_restricted=Capability.EVIDENCE_RESTRICTED in principal.capabilities,
+        mask_derived_content=finding_depends_on_unreadable_evidence(session, finding, principal),
     )

@@ -108,6 +108,21 @@ class Capability(StrEnum):
     RETENTION = "retention.redact"
     EVIDENCE_READ = "evidence.read"
     EVIDENCE_RESTRICTED = "evidence.restricted"
+    SYSTEMS_READ = "systems.read"
+    SYSTEMS_WRITE = "systems.write"
+    EVENTS_READ = "events.read"
+    EVENTS_WRITE = "events.write"
+    CLAIMS_READ = "claims.read"
+    CLAIMS_WRITE = "claims.write"
+    EVIDENCE_WRITE = "evidence.write"
+    FINDINGS_READ = "findings.read"
+    FINDINGS_REBUT = "findings.rebut"
+    CRITICS_READ = "critics.read"
+    CRITICS_RUN = "critics.run"
+    VERIFICATION_READ = "verification.read"
+    VERIFICATION_REQUEST = "verification.request"
+    VERIFICATION_RUN = "verification.run"
+    POLICIES_READ = "policies.read"
 
 
 class CapabilityChecker(Protocol):
@@ -316,6 +331,12 @@ _CAPABILITY_REQUIREMENTS: dict[FindingStatus, Capability] = {
     FindingStatus.DUPLICATE: Capability.ADMINISTER,
     FindingStatus.EXPIRED: Capability.ADMINISTER,
 }
+
+
+def required_capability_for_status(target: FindingStatus) -> Capability | None:
+    """Expose the lifecycle's canonical target authority for preflight checks."""
+    return _CAPABILITY_REQUIREMENTS.get(target)
+
 
 TransitionRule = Callable[[Session, Finding, TransitionRequest], None]
 

@@ -40,6 +40,16 @@ class EvidenceRepository:
             verification=(
                 None if evidence.verification is None else as_json(evidence.verification)
             ),
+            claimed_producer_identity=(
+                None
+                if evidence.claimed_producer_identity is None
+                else as_json(evidence.claimed_producer_identity)
+            ),
+            claimed_verification=(
+                None
+                if evidence.claimed_verification is None
+                else as_json(evidence.claimed_verification)
+            ),
             relevance_to_claim=evidence.relevance_to_claim,
             relevance_to_finding=evidence.relevance_to_finding,
             relevance_note=evidence.relevance_note,
@@ -112,6 +122,8 @@ def _to_domain(row: EvidenceRow) -> EvidenceItem:
             "integrity_method": row.integrity_method,
             "producer_identity": row.producer_identity,
             "verification": row.verification,
+            "claimed_producer_identity": row.claimed_producer_identity,
+            "claimed_verification": row.claimed_verification,
             "relevance_to_claim": row.relevance_to_claim,
             "relevance_to_finding": row.relevance_to_finding,
             "relevance_note": row.relevance_note,

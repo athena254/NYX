@@ -20,7 +20,7 @@ from nyx.evidence.probes import (
     StateCheckProbe,
     builtin_probes,
 )
-from nyx.evidence.registry import Budget, ProbeRegistry, ProbeRegistryError
+from nyx.evidence.registry import Budget, ProbeExecutionRefused, ProbeRegistry, ProbeRegistryError
 
 _ACTOR = PrincipalRef(id="agent:claude", kind=PrincipalKind.AGENT)
 _APPROVER = PrincipalRef(id="human:operator", kind=PrincipalKind.HUMAN)
@@ -287,17 +287,16 @@ def test_a_batch_within_budget_completes() -> None:
     assert len(observations) == 2
 
 
-def test_the_registry_records_a_read_only_observation_for_the_run() -> None:
-    """The observation produced by a registry run is the same record a direct call produces."""
+def test_the_registry_refuses_runtime_callable_context_data() -> None:
+    """Runtime callbacks are not serialised in the parent; register trusted code instead."""
 
     registry = _registry()
-    observation = registry.run_probe(
-        "probe:reexecution",
-        "tests",
-        _context(runner=lambda: (0, "ok", "")),
-    )
-    assert observation.read_only is True
-    assert observation.probe_id == "probe:reexecution"
+    with pytest.raises(ProbeExecutionRefused, match="unsupported type"):
+        registry.run_probe(
+            "probe:reexecution",
+            "tests",
+            _context(runner=lambda: (0, "ok", "")),
+        )
 
 
 def test_an_unknown_probe_is_not_silently_skipped() -> None:

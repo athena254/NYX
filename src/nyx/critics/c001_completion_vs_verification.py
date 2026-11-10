@@ -35,6 +35,7 @@ from nyx.domain.enums import (
     CriticType,
     EvidenceKind,
     FindingCategory,
+    ProbeOutcome,
     Reproducibility,
     Severity,
     VerificationStrength,
@@ -146,7 +147,45 @@ class CompletionVsVerificationCritic:
             )
 
         covering = [item for item in observations if _covers_version(item, commit)]
+        unsuccessful = [item for item in covering if item.result is not ProbeOutcome.OBSERVED]
         self_reported = _self_reported_evidence(claim, context)
+
+        if unsuccessful and best is None:
+            outcomes = ", ".join(f"{item.id}: {item.result.value}" for item in unsuccessful)
+            return _strength_result(
+                proposition=(
+                    f"Completion claim {claim.id} for commit {commit} has covering probe "
+                    f"observations that did not establish a result ({outcomes})."
+                ),
+                scope=context.scope,
+                observations=[
+                    f"Claim {claim.id} asserts completion for commit {commit}.",
+                    *[
+                        f"Observation {item.id} covers the commit but its probe outcome is "
+                        f"{item.result.value}."
+                        for item in unsuccessful
+                    ],
+                ],
+                limitations=[
+                    "These outcomes do not provide positive completion support.",
+                    "This is a verification gap, not evidence that the work is defective; a "
+                    "failed, skipped, or negative probe outcome is not proof of a code defect.",
+                ],
+                rationale=(
+                    "Only an observation with an observed probe outcome can support the claim. "
+                    f"The covering observation outcome(s) were {outcomes}; they establish no "
+                    "positive verification strength."
+                ),
+                next_step=(
+                    f"Review the recorded probe outcome(s) for commit {commit} and, where "
+                    "appropriate, run a fresh verification probe and link its observation."
+                ),
+                claim=claim,
+                context=context,
+                achieved=VerificationStrength.NONE,
+                subject_version=commit,
+                observation_ids=[item.id for item in unsuccessful],
+            )
 
         if not covering:
             if observations:
@@ -592,9 +631,13 @@ def _covers_version(observation: Observation, commit: str) -> bool:
 def _strongest_support(
     observations: list[Observation], commit: str
 ) -> tuple[VerificationStrength, Observation | None]:
-    """Return the strongest observation covering ``commit``, or ``none`` with no observation."""
+    """Return strongest successful support, or ``none`` when no observed outcome covers it."""
 
-    covering = [item for item in observations if _covers_version(item, commit)]
+    covering = [
+        item
+        for item in observations
+        if _covers_version(item, commit) and item.result is ProbeOutcome.OBSERVED
+    ]
     if not covering:
         return VerificationStrength.NONE, None
     best = max(covering, key=lambda item: _STRENGTH_ORDER[_observation_strength(item)])

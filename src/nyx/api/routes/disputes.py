@@ -23,14 +23,22 @@ and no endpoint that rewrites a prior record.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.orm import Session
 
-from nyx.api.deps import get_dispute_service
+from nyx.api.deps import get_dispute_service, get_session
 from nyx.api.errors import ApiError, request_id_for
+from nyx.api.evidence_projection import (
+    finding_depends_on_unreadable_evidence,
+    masked_text,
+    project_finding,
+)
 from nyx.auth.dependency import current_principal
+from nyx.auth.principal import AuthenticatedPrincipal
 from nyx.disputes.models import Disposition, Rebuttal, VerificationJob
 from nyx.disputes.service import (
     DisputeService,
     FindingNotFoundError,
+    InvalidVerificationReferenceError,
     UnknownEvidenceError,
 )
 from nyx.disputes.verification import VerificationNotPermittedError
@@ -151,6 +159,46 @@ def _require_finding(service: DisputeService, finding_id: str) -> Finding:
         raise ApiError(ErrorCode.NOT_FOUND, message=exc.detail) from exc
 
 
+def _mask_for_finding(
+    service: DisputeService,
+    session: Session,
+    finding_id: str,
+    principal: AuthenticatedPrincipal,
+) -> bool:
+    """Determine whether derived record text must be hidden for this caller."""
+
+    try:
+        finding = service.get_history(finding_id=finding_id).finding
+    except FindingNotFoundError:
+        return True
+    return finding_depends_on_unreadable_evidence(session, finding, principal)
+
+
+def _project_rebuttal(item: Rebuttal, *, mask: bool) -> Rebuttal:
+    return item.model_copy(
+        update={"argument": masked_text(item.argument, mask_derived_content=mask)}
+    )
+
+
+def _project_job(item: VerificationJob, *, mask: bool) -> VerificationJob:
+    if not mask:
+        return item
+    return item.model_copy(
+        update={
+            "result_summary": masked_text(item.result_summary, mask_derived_content=True),
+            "independence": masked_text(item.independence, mask_derived_content=True),
+            "failure_details": None,
+            "tool_run_refs": [],
+        }
+    )
+
+
+def _project_disposition(item: Disposition, *, mask: bool) -> Disposition:
+    return item.model_copy(
+        update={"rationale": masked_text(item.rationale, mask_derived_content=mask)}
+    )
+
+
 # --------------------------------------------------------------------------- rebuttals
 
 
@@ -159,6 +207,8 @@ def submit_rebuttal(
     finding_id: str,
     payload: RebuttalRequest,
     request: Request,
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+    session: Session = Depends(get_session),
     service: DisputeService = Depends(get_dispute_service),
 ) -> Rebuttal:
     """Record a challenge to a finding.
@@ -168,13 +218,17 @@ def submit_rebuttal(
     """
 
     try:
-        return service.submit_rebuttal(
+        rebuttal = service.submit_rebuttal(
             finding_id=finding_id,
             actor=_actor_for(request, payload.submitted_by),
-            submitted_by=payload.submitted_by,
+            submitted_by=current_principal(request).id.id,
             argument=payload.argument,
             evidence_ids=payload.evidence_ids,
             requested_outcome=payload.requested_outcome,
+        )
+        return _project_rebuttal(
+            rebuttal,
+            mask=_mask_for_finding(service, session, finding_id, principal),
         )
     except UnknownEvidenceError as exc:
         raise ApiError(ErrorCode.UNKNOWN_EVIDENCE_ID, message=exc.detail) from exc
@@ -185,12 +239,20 @@ def submit_rebuttal(
 @router.get("/findings/{finding_id}/rebuttals", response_model=RebuttalListResponse)
 def list_rebuttals(
     finding_id: str,
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+    session: Session = Depends(get_session),
     service: DisputeService = Depends(get_dispute_service),
 ) -> RebuttalListResponse:
     """List every rebuttal recorded against a finding, oldest first."""
 
     _require_finding(service, finding_id)
-    return RebuttalListResponse(items=service.get_history(finding_id=finding_id).rebuttals)
+    mask = _mask_for_finding(service, session, finding_id, principal)
+    return RebuttalListResponse(
+        items=[
+            _project_rebuttal(item, mask=mask)
+            for item in service.get_history(finding_id=finding_id).rebuttals
+        ]
+    )
 
 
 # --------------------------------------------------------------------------- verification
@@ -201,6 +263,8 @@ def request_verification(
     finding_id: str,
     payload: VerificationRequest,
     request: Request,
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+    session: Session = Depends(get_session),
     service: DisputeService = Depends(get_dispute_service),
 ) -> VerificationJobResponse:
     """Queue an allowlisted verification check for a finding.
@@ -213,13 +277,19 @@ def request_verification(
         job = service.request_verification(
             finding_id=finding_id,
             check_id=payload.check_id,
-            requested_by=payload.requested_by,
+            requested_by=current_principal(request).id.id,
         )
     except VerificationNotPermittedError as exc:
         raise ApiError(ErrorCode.VERIFICATION_NOT_PERMITTED, message=exc.detail) from exc
     except FindingNotFoundError as exc:
         raise ApiError(ErrorCode.NOT_FOUND, message=exc.detail) from exc
-    return VerificationJobResponse(job=job, request_id=request_id_for(request))
+    return VerificationJobResponse(
+        job=_project_job(
+            job,
+            mask=_mask_for_finding(service, session, job.finding_id, principal),
+        ),
+        request_id=request_id_for(request),
+    )
 
 
 @router.post(
@@ -228,6 +298,8 @@ def request_verification(
 )
 def run_pending_verification(
     finding_id: str,
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+    session: Session = Depends(get_session),
     service: DisputeService = Depends(get_dispute_service),
 ) -> VerificationJobListResponse:
     """Run the finding's queued verification jobs through the allowlist.
@@ -238,19 +310,26 @@ def run_pending_verification(
 
     _require_finding(service, finding_id)
     jobs = service.run_pending_verification(finding_id=finding_id)
-    return VerificationJobListResponse(items=jobs)
+    mask = _mask_for_finding(service, session, finding_id, principal)
+    return VerificationJobListResponse(items=[_project_job(item, mask=mask) for item in jobs])
 
 
 @router.get("/findings/{finding_id}/verification-jobs", response_model=VerificationJobListResponse)
 def list_verification_jobs(
     finding_id: str,
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+    session: Session = Depends(get_session),
     service: DisputeService = Depends(get_dispute_service),
 ) -> VerificationJobListResponse:
     """List every verification attempt recorded for a finding, oldest first."""
 
     _require_finding(service, finding_id)
+    mask = _mask_for_finding(service, session, finding_id, principal)
     return VerificationJobListResponse(
-        items=service.get_history(finding_id=finding_id).verification_jobs
+        items=[
+            _project_job(item, mask=mask)
+            for item in service.get_history(finding_id=finding_id).verification_jobs
+        ]
     )
 
 
@@ -258,6 +337,8 @@ def list_verification_jobs(
 def get_verification_job(
     job_id: str,
     request: Request,
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+    session: Session = Depends(get_session),
     service: DisputeService = Depends(get_dispute_service),
 ) -> VerificationJobResponse:
     """Retrieve one verification attempt, including its independence statement."""
@@ -265,7 +346,13 @@ def get_verification_job(
     job = service.get_verification_job(job_id=job_id)
     if job is None:
         raise ApiError(ErrorCode.NOT_FOUND, message="Verification job not found.")
-    return VerificationJobResponse(job=job, request_id=request_id_for(request))
+    return VerificationJobResponse(
+        job=_project_job(
+            job,
+            mask=_mask_for_finding(service, session, job.finding_id, principal),
+        ),
+        request_id=request_id_for(request),
+    )
 
 
 # --------------------------------------------------------------------------- dispositions
@@ -276,6 +363,8 @@ def record_disposition(
     finding_id: str,
     payload: DispositionRequest,
     request: Request,
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+    session: Session = Depends(get_session),
     service: DisputeService = Depends(get_dispute_service),
 ) -> Disposition:
     """Record an authorised outcome and move the finding to the matching state.
@@ -285,15 +374,19 @@ def record_disposition(
     """
 
     try:
-        return service.record_disposition(
+        disposition = service.record_disposition(
             finding_id=finding_id,
             actor=_actor_for(request, payload.decided_by),
             outcome=payload.outcome,
             rationale=payload.rationale,
-            decided_by=payload.decided_by,
+            decided_by=current_principal(request).id.id,
             policy_version=payload.policy_version,
             verification_run_ids=payload.verification_run_ids,
             counterevidence_ids=payload.counterevidence_ids,
+        )
+        return _project_disposition(
+            disposition,
+            mask=_mask_for_finding(service, session, finding_id, principal),
         )
     except CapabilityDeniedError as exc:
         raise ApiError(ErrorCode.CAPABILITY_REQUIRED, message=exc.detail) from exc
@@ -301,6 +394,10 @@ def record_disposition(
         raise ApiError(ErrorCode.INVALID_LIFECYCLE_TRANSITION, message=exc.detail) from exc
     except FindingNotFoundError as exc:
         raise ApiError(ErrorCode.NOT_FOUND, message=exc.detail) from exc
+    except UnknownEvidenceError as exc:
+        raise ApiError(ErrorCode.UNKNOWN_EVIDENCE_ID, message=exc.detail) from exc
+    except InvalidVerificationReferenceError as exc:
+        raise ApiError(ErrorCode.VERIFICATION_FAILED, message=exc.detail) from exc
 
 
 # --------------------------------------------------------------------------- history
@@ -309,6 +406,8 @@ def record_disposition(
 @router.get("/findings/{finding_id}/history", response_model=DisputeHistoryResponse)
 def get_history(
     finding_id: str,
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+    session: Session = Depends(get_session),
     service: DisputeService = Depends(get_dispute_service),
 ) -> DisputeHistoryResponse:
     """Return the full dispute record for a finding, including the disposition chain.
@@ -319,12 +418,17 @@ def get_history(
 
     _require_finding(service, finding_id)
     history = service.get_history(finding_id=finding_id)
+    mask = _mask_for_finding(service, session, finding_id, principal)
     return DisputeHistoryResponse(
-        finding=history.finding,
-        rebuttals=history.rebuttals,
-        verification_jobs=history.verification_jobs,
-        dispositions=history.dispositions,
-        current_disposition=history.current_disposition,
+        finding=project_finding(history.finding, mask_derived_content=mask),
+        rebuttals=[_project_rebuttal(item, mask=mask) for item in history.rebuttals],
+        verification_jobs=[_project_job(item, mask=mask) for item in history.verification_jobs],
+        dispositions=[_project_disposition(item, mask=mask) for item in history.dispositions],
+        current_disposition=(
+            None
+            if history.current_disposition is None
+            else _project_disposition(history.current_disposition, mask=mask)
+        ),
     )
 
 

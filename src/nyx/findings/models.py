@@ -103,6 +103,7 @@ class CriticRun(NyxModel):
     #: Redacted at the persistence boundary, never trusted as display text.
     llm_io: dict[str, Any] | None = None
     finding_id: Identifier | None = None
+    assessment_job_id: Identifier | None = None
 
     @model_validator(mode="after")
     def _completed_not_before_started(self) -> Self:

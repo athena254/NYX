@@ -315,7 +315,18 @@ _OPERATOR = {
     "principal_id": "operator",
     "api_key_env": "NYX_PROBE_KEY_OPERATOR",
     "key": "probe-key-operator-value",
-    "capabilities": ["findings.disposition", "evidence.read", "evidence.restricted"],
+    "capabilities": [
+        "findings.disposition",
+        "findings.rebut",
+        "findings.read",
+        "evidence.read",
+        "evidence.restricted",
+        "evidence.write",
+        "systems.write",
+        "claims.write",
+        "events.write",
+        "critics.run",
+    ],
 }
 
 
@@ -386,7 +397,7 @@ def test_a_principal_without_the_capability_is_refused(
 
     with _api_key_client(settings, engine, session_factory, monkeypatch) as client:
         headers = _auth(_AUDITOR)
-        finding_id, _claim_id, _evidence_id = _seed(client, headers=headers)
+        finding_id, _claim_id, _evidence_id = _seed(client, headers=_auth(_OPERATOR))
 
         response = client.post(
             f"{API}/findings/{finding_id}/dispositions",
@@ -417,7 +428,7 @@ def test_a_caller_cannot_record_an_action_under_another_identitys_name(
 
     with _api_key_client(settings, engine, session_factory, monkeypatch) as client:
         headers = _auth(_AUDITOR)
-        finding_id, _claim_id, _evidence_id = _seed(client, headers=headers)
+        finding_id, _claim_id, _evidence_id = _seed(client, headers=_auth(_OPERATOR))
 
         # The body claims to be the operator. The actor is still the auditor.
         response = client.post(

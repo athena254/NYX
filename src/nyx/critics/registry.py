@@ -124,6 +124,7 @@ def run_selected(
     *,
     event_id: str,
     critic_ids: list[str] | None = None,
+    assessment_job_id: str | None = None,
     clock: Callable[[], datetime] = utc_now,
 ) -> list[CriticRunOutcome]:
     """Run the selected critics against the event ``event_id``.
@@ -144,7 +145,30 @@ def run_selected(
     )
 
     outcomes: list[CriticRunOutcome] = []
+    persisted = (
+        {
+            run.critic_id: run
+            for run in CriticRunRepository(session).list_for_assessment_job(assessment_job_id)
+        }
+        if assessment_job_id is not None
+        else {}
+    )
     for critic in selected:
+        prior = persisted.get(critic.critic_id)
+        if prior is not None:
+            outcomes.append(
+                CriticRunOutcome(
+                    critic_id=prior.critic_id,
+                    critic_version=prior.critic_version,
+                    result=prior.result,
+                    proposition=(
+                        "Previously persisted assessment critic run reused after lease recovery."
+                    ),
+                    rationale=prior.rationale,
+                    finding_id=prior.finding_id,
+                )
+            )
+            continue
         started_at = clock()
         failure_details: str | None = None
         try:
@@ -170,6 +194,7 @@ def run_selected(
             prompt_version=result.prompt_version,
             resource_usage=result.resource_usage,
             llm_io=_redacted_llm_io(result.llm_io),
+            assessment_job_id=assessment_job_id,
         )
         CriticRunRepository(session).add(run)
 

@@ -61,6 +61,19 @@ def current_principal(request: Request) -> AuthenticatedPrincipal:
     return principal
 
 
+def require_api_authentication(
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+) -> AuthenticatedPrincipal:
+    """Router-level authentication dependency for the application factory.
+
+    Protected routers can mount this dependency centrally while each operation keeps
+    its own capability requirement. Local loopback mode intentionally resolves to the
+    configured anonymous operator through ``current_principal``.
+    """
+
+    return principal
+
+
 def require_capability(capability: Capability) -> Callable[..., AuthenticatedPrincipal]:
     """Build a dependency that requires ``capability`` on the current principal.
 

@@ -84,6 +84,8 @@ All 25 commands, with the arguments that are required:
 | `nyx watch` | — (long-running; Ctrl-C to stop) |
 | `nyx retention redact` | `--dry-run` recommended |
 | `nyx retention purge` | `--apply` to write |
+| `nyx assessment backlog` | — |
+| `nyx assessment drain` | `--limit` |
 | `nyx chat ask` | question |
 | `nyx chat shell` | — (interactive) |
 | `nyx telegram check` | — |

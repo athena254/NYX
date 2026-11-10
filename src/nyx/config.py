@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     redaction_enabled: bool = True
     auth_mode: AuthMode = "none"
     auth_api_key: SecretStr | None = None
+    # Outbound NYX clients use an independently scoped credential, never the owner/LLM key.
+    client_base_url: str | None = None
+    client_api_key: SecretStr | None = None
     llm_enabled: bool = False
     llm_provider: str | None = None
     llm_model: str | None = None
@@ -219,9 +222,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_safe_auth_boundary(self) -> Self:
-        if self.host not in _LOOPBACK_HOSTS and self.auth_mode == "none":
+        if self.host not in _LOOPBACK_HOSTS and self.auth_mode in {"none", "local"}:
             raise ValueError(
-                "refusing to bind a non-loopback host with auth_mode='none'; "
+                f"refusing to bind a non-loopback host with auth_mode='{self.auth_mode}'; "
                 "set NYX_AUTH_MODE explicitly before exposing NYX"
             )
         if self.auth_mode == "api_key" and self.auth_api_key is None and not self.auth_principals:

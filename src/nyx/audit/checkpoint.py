@@ -355,7 +355,36 @@ def compare_against_checkpoint(session_factory: Any, *, path: Path) -> Checkpoin
         raise
 
     latest = records[-1]
-    head = _read_head(session_factory)
+    from nyx.audit.verifier import AuditVerifier
+    from nyx.storage.db import session_scope
+    from nyx.storage.repositories.audit import AuditRepository
+
+    # One ordered SELECT supplies BOTH integrity verification and anchor comparison. In
+    # SQLite's legacy transaction mode, separate SELECTs need not share a read snapshot.
+    with session_scope(session_factory) as session:
+        repository = AuditRepository(session)
+        entries = repository.list_all()
+        verification = AuditVerifier(repository).verify(entries=entries)
+    head = _ChainHead(
+        sequence=entries[-1].sequence if entries else 0,
+        head_hash=entries[-1].entry_hash if entries else None,
+        entries_checked=len(entries),
+    )
+    if not verification.ok:
+        divergence = verification.first_divergence
+        reason = (
+            REASON_TRUNCATED
+            if divergence is not None and divergence.reason in {"not_genesis", "sequence_gap"}
+            else "audit_chain_invalid"
+        )
+        return CheckpointComparison(
+            ok=False,
+            reason=reason,
+            checkpoint_sequence=latest.sequence,
+            checkpoint_head_hash=latest.head_hash,
+            stored_head_hash=head.head_hash,
+            entries_checked=verification.entries_checked,
+        )
 
     if head.head_hash is None:
         return CheckpointComparison(
@@ -377,7 +406,9 @@ def compare_against_checkpoint(session_factory: Any, *, path: Path) -> Checkpoin
             entries_checked=head.entries_checked,
         )
 
-    stored_at_sequence = _hash_at_sequence(session_factory, latest.sequence)
+    stored_at_sequence = next(
+        (entry.entry_hash for entry in entries if entry.sequence == latest.sequence), None
+    )
     if stored_at_sequence is None:
         # The chain was truncated below the checkpointed sequence: entries were deleted, not
         # rewritten. That is a divergence the plain verifier reports as a sequence gap, and it is a

@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+from pydantic import SecretStr
 
 from nyx.domain.enums import RebuttalRequestedOutcome
 
@@ -51,10 +52,19 @@ class NyxClient:
         *,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         transport: httpx.BaseTransport | None = None,
+        api_key: SecretStr | None = None,
     ) -> None:
+        if api_key is not None and (
+            not api_key.get_secret_value()
+            or api_key.get_secret_value() != api_key.get_secret_value().strip()
+            or not api_key.get_secret_value().isascii()
+            or any(ord(char) < 32 or ord(char) == 127 for char in api_key.get_secret_value())
+        ):
+            raise ValueError("NYX API key must be nonempty printable ASCII without edge whitespace")
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._transport = transport
+        self._api_key = api_key
 
     @property
     def base_url(self) -> str:
@@ -76,7 +86,12 @@ class NyxClient:
         json: dict[str, Any] | None = None,
     ) -> Any:
         try:
-            with httpx.Client(timeout=self._timeout, transport=self._transport) as client:
+            headers = (
+                {"X-API-Key": self._api_key.get_secret_value()} if self._api_key is not None else {}
+            )
+            with httpx.Client(
+                timeout=self._timeout, transport=self._transport, headers=headers
+            ) as client:
                 response = client.request(method, self._url(path), params=params, json=json)
         except httpx.TimeoutException as exc:
             raise NyxUnavailableError(f"NYX at {self._base_url} timed out", code="TIMEOUT") from exc

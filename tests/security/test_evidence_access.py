@@ -62,12 +62,21 @@ def _two_principals() -> list[dict[str, Any]]:
         {
             "principal_id": "full-reader",
             "api_key_env": "NYX_TEST_FULL_KEY",
-            "capabilities": ["evidence.read", "evidence.restricted"],
+            "capabilities": [
+                "evidence.read",
+                "evidence.restricted",
+                "evidence.write",
+                "systems.write",
+                "claims.write",
+                "events.write",
+                "critics.run",
+                "findings.read",
+            ],
         },
         {
             "principal_id": "basic-reader",
             "api_key_env": "NYX_TEST_READ_KEY",
-            "capabilities": ["evidence.read"],
+            "capabilities": ["evidence.read", "findings.read"],
         },
     ]
 
@@ -145,6 +154,7 @@ def _seed_finding(client: TestClient, key: str, evidence_commit: str) -> tuple[s
     headers = _bearer(key)
     sys_id = client.post(
         f"{API}/systems",
+        headers=headers,
         json={
             "name": "auth-evidence-sys",
             "kind": "agent",
@@ -156,6 +166,7 @@ def _seed_finding(client: TestClient, key: str, evidence_commit: str) -> tuple[s
 
     claim_id = client.post(
         f"{API}/claims",
+        headers=headers,
         json={
             "statement": "All required tests pass for commit abc123.",
             "claimant_system_id": sys_id,
@@ -167,6 +178,7 @@ def _seed_finding(client: TestClient, key: str, evidence_commit: str) -> tuple[s
 
     event_id = client.post(
         f"{API}/events",
+        headers=headers,
         json={
             "source_system_id": sys_id,
             "event_type": "agent.completion_claim",

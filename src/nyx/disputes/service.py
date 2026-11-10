@@ -49,10 +49,12 @@ from nyx.domain.enums import (
 from nyx.error_codes import ErrorCode
 from nyx.findings.lifecycle import (
     CapabilityChecker,
+    CapabilityDeniedError,
     DenyAllCapabilityChecker,
     FindingLifecycle,
     TransitionRequest,
     allowed_transitions,
+    required_capability_for_status,
 )
 from nyx.findings.models import Finding
 from nyx.storage.repositories.dispositions import DispositionRepository
@@ -109,6 +111,12 @@ class UnknownEvidenceError(DisputeError):
     code = ErrorCode.UNKNOWN_EVIDENCE_ID
 
 
+class InvalidVerificationReferenceError(DisputeError):
+    """A disposition cited a missing, unrelated, or incomplete verification job."""
+
+    code = ErrorCode.VERIFICATION_FAILED
+
+
 @dataclass(frozen=True)
 class DisputeHistory:
     """Everything recorded about one finding's dispute, in the order it happened."""
@@ -143,9 +151,8 @@ class DisputeService:
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._session = session
-        self._lifecycle = FindingLifecycle(
-            session, capability_checker=capability_checker or DenyAllCapabilityChecker()
-        )
+        self._capability_checker = capability_checker or DenyAllCapabilityChecker()
+        self._lifecycle = FindingLifecycle(session, capability_checker=self._capability_checker)
         self._allowlist = allowlist
         self._clock = clock
         self._findings = FindingRepository(session)
@@ -267,6 +274,8 @@ class DisputeService:
             if finding is None:
                 continue
             started_at = self._clock()
+            if not self._jobs.claim(job.id, started_at=started_at):
+                continue
             context = VerificationContext(session=self._session, finding=finding, clock=self._clock)
             try:
                 result = self._allowlist.run(job.check_id, context)
@@ -279,6 +288,7 @@ class DisputeService:
                 job.failure_details = f"{type(exc).__name__}: {exc}"[:4000]
                 job.started_at = started_at
                 job.completed_at = self._clock()
+                self._jobs.record_result(job)
                 completed.append(job)
                 continue
 
@@ -290,6 +300,7 @@ class DisputeService:
             job.tool_run_refs = list(result.tool_run_refs)
             job.started_at = started_at
             job.completed_at = self._clock()
+            self._jobs.record_result(job)
             completed.append(job)
         return completed
 
@@ -310,16 +321,59 @@ class DisputeService:
     ) -> Disposition:
         """Record an authorised outcome and move the finding to the matching state.
 
-        Capability is enforced by the lifecycle machine rather than here, so a principal without the
-        disposition capability cannot record one. The disposition supersedes the previous one by
-        linking to it instead of replacing it.
+        The requested outcome's capability is checked before any reference lookup or write.
+        The lifecycle rechecks it at the final transition. A disposition supersedes the previous
+        one by linking to it instead of replacing it.
 
         ``rebuttal_id`` defaults to the finding's latest rebuttal: a disposition is normally an
         answer to a challenge, and recording which challenge it answers makes history legible.
         """
 
-        finding = self._require_finding(finding_id)
         target = _OUTCOME_TO_STATUS[outcome]
+        required = required_capability_for_status(target)
+        if required is not None and not self._capability_checker.has_capability(actor, required):
+            raise CapabilityDeniedError(
+                f"principal '{actor.id}' lacks capability '{required.value}' "
+                f"required to move a finding to '{target.value}'"
+            )
+        finding = self._require_finding(finding_id)
+
+        # Validate every citation before the first lifecycle transition. The caller's
+        # request-scoped transaction will roll back failures, but keeping validation ahead
+        # of writes also makes this service safe when used inside a longer transaction.
+        for evidence_id in counterevidence_ids:
+            evidence = self._evidence.get(evidence_id)
+            if evidence is None:
+                raise UnknownEvidenceError(
+                    f"disposition references unknown evidence {evidence_id!r}"
+                )
+            is_linked = evidence_id in finding.evidence_ids
+            is_relevant = (
+                evidence.relevance_to_finding == finding.id
+                or evidence.relevance_to_claim in finding.claim_ids
+            )
+            if not (
+                is_linked
+                or is_relevant
+                or self._rebuttals.cites_evidence(finding_id=finding.id, evidence_id=evidence_id)
+            ):
+                raise UnknownEvidenceError(
+                    f"evidence {evidence_id!r} is not linked to finding {finding.id!r}"
+                )
+        for job_id in verification_run_ids:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise InvalidVerificationReferenceError(
+                    f"disposition references unknown verification job {job_id!r}"
+                )
+            if job.finding_id != finding.id:
+                raise InvalidVerificationReferenceError(
+                    f"verification job {job_id!r} belongs to another finding"
+                )
+            if job.status is not VerificationJobStatus.SUCCEEDED or job.completed_at is None:
+                raise InvalidVerificationReferenceError(
+                    f"verification job {job_id!r} has not completed successfully"
+                )
 
         if rebuttal_id is None:
             rebuttals = self._rebuttals.list(finding_id=finding.id)

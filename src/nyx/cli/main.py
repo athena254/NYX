@@ -28,6 +28,7 @@ from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 
 from nyx.adapters.base import AdapterState
+from nyx.assessment import AssessmentWorker
 from nyx.audit.checkpoint import (
     CheckpointError,
     compare_against_checkpoint,
@@ -115,6 +116,9 @@ audit_app = typer.Typer(help="Verify the append-only audit history.", no_args_is
 retention_app = typer.Typer(
     help="Retention policy and the redaction workflow.", no_args_is_help=True
 )
+assessment_app = typer.Typer(
+    help="Durable assessment work: backlog state and explicit draining.", no_args_is_help=True
+)
 
 app.add_typer(system_app, name="system")
 app.add_typer(ingest_app, name="ingest")
@@ -126,6 +130,7 @@ app.add_typer(chat_app, name="chat")
 app.add_typer(telegram_app, name="telegram")
 app.add_typer(audit_app, name="audit")
 app.add_typer(retention_app, name="retention")
+app.add_typer(assessment_app, name="assessment")
 app.add_typer(golden_app, name="golden")
 
 
@@ -1549,7 +1554,10 @@ def _build_agent(*, actor: str) -> ChatAgent:
         timeout_seconds=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
     )
-    client = NyxClient(base_url=f"http://{settings.host}:{settings.port}")
+    client = NyxClient(
+        base_url=settings.client_base_url or f"http://{settings.host}:{settings.port}",
+        api_key=settings.client_api_key,
+    )
     try:
         client.list_systems(limit=1)
     except NyxClientError as exc:
@@ -1640,7 +1648,10 @@ def _build_telegram_bot() -> TelegramBot:
         timeout_seconds=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
     )
-    client = NyxClient(base_url=f"http://{settings.host}:{settings.port}")
+    client = NyxClient(
+        base_url=settings.client_base_url or f"http://{settings.host}:{settings.port}",
+        api_key=settings.client_api_key,
+    )
     try:
         client.list_systems(limit=1)
     except NyxClientError as exc:
@@ -1912,6 +1923,56 @@ class _StoreBackedRetentionAuthoriser:
 
 def _retention_authoriser(settings: Settings) -> RetentionAuthoriser:
     return _StoreBackedRetentionAuthoriser(CapabilityStore.load_from_settings(settings))
+
+
+# ------------------------------------------------------------------------- assessment
+
+
+def _assessment_worker() -> AssessmentWorker:
+    """Build a worker over the configured store, with the pack registered as configured."""
+
+    settings = Settings()
+    engine = create_engine_from_settings(settings)
+    factory = create_session_factory(engine)
+    register_storage_backed(factory)
+    register_ground_truth(settings)
+    return AssessmentWorker(factory)
+
+
+@assessment_app.command("backlog")
+def assessment_backlog(
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Report queued, leased, and dead-lettered assessment work."""
+
+    backlog = _assessment_worker().backlog()
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "queued": backlog.queued,
+                    "leased": backlog.leased,
+                    "dead_letter": backlog.dead_letter,
+                },
+                indent=2,
+            )
+        )
+        return
+    typer.echo(f"queued={backlog.queued} leased={backlog.leased} dead_letter={backlog.dead_letter}")
+
+
+@assessment_app.command("drain")
+def assessment_drain(
+    limit: int = typer.Option(10, "--limit", min=1, max=100, help="Maximum jobs to run."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Run queued assessment work now. NYX never starts a background worker."""
+
+    completed = _assessment_worker().drain(limit=limit)
+    if json_output:
+        typer.echo(json.dumps({"completed": completed, "count": len(completed)}, indent=2))
+        return
+    typer.echo(f"completed={len(completed)}")
 
 
 @retention_app.command("purge")

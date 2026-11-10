@@ -63,6 +63,8 @@ class EvidenceItem(NyxModel):
     integrity_method: IntegrityMethod
     producer_identity: PrincipalRef | None = None
     verification: EvidenceVerification | None = None
+    claimed_producer_identity: PrincipalRef | None = None
+    claimed_verification: EvidenceVerification | None = None
     relevance_to_claim: Identifier | None = None
     relevance_to_finding: Identifier | None = None
     relevance_note: Annotated[str, StringConstraints(min_length=1, max_length=1000)] | None = None

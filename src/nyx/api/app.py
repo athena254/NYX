@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from sqlalchemy import Engine
 
 import nyx.critics  # noqa: F401 - registers the deterministic critic pack
@@ -24,6 +24,7 @@ from nyx.api.routes import (
     health,
     systems,
 )
+from nyx.auth.api_policy import require_api_access
 from nyx.auth.checker import ConfigBackedCapabilityChecker
 from nyx.auth.store import CapabilityStore
 from nyx.config import Settings
@@ -120,13 +121,20 @@ def create_app(
     app.add_middleware(RequestIdMiddleware)
     register_exception_handlers(app)
 
-    app.include_router(systems.router, prefix=_API_V1)
-    app.include_router(events.router, prefix=_API_V1)
-    app.include_router(claims.router, prefix=_API_V1)
-    app.include_router(evidence.router, prefix=_API_V1)
-    app.include_router(findings.router, prefix=_API_V1)
-    app.include_router(critics.router, prefix=_API_V1)
-    app.include_router(disputes.router, prefix=_API_V1)
+    # Authentication is the default boundary for the API group, not a side effect of
+    # rate limiting or selected route dependencies. Health/readiness are explicit exceptions.
+    protected = APIRouter(prefix=_API_V1, dependencies=[Depends(require_api_access)])
+    for router in (
+        systems.router,
+        events.router,
+        claims.router,
+        evidence.router,
+        findings.router,
+        critics.router,
+        disputes.router,
+    ):
+        protected.include_router(router)
+    app.include_router(protected)
     app.include_router(health.router, prefix=_API_V1)
 
     return app

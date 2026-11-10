@@ -17,19 +17,31 @@ Three safeguards live here, and each exists because the alternative is a false s
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from nyx.domain.authorisation import Authorisation
 from nyx.domain.base import utc_now
-from nyx.domain.enums import RiskAction
+from nyx.domain.enums import ProbeKind, ProbeOutcome, RiskAction
 from nyx.domain.observation import Observation
-from nyx.evidence.probes import Probe, ProbeContext, Target
+from nyx.evidence.isolated import (
+    IsolatedExecutionRefused,
+    IsolatedPayloadRefused,
+    execute_isolated_probe,
+    prepare_trusted_probe,
+)
+from nyx.evidence.probes import Probe, ProbeContext, Target, make_observation
 
 
 class ProbeRegistryError(Exception):
     """Raised when a probe is unknown, disabled, over budget, or not authorised to mutate."""
+
+
+class ProbeExecutionRefused(ProbeRegistryError):
+    """The trusted extension cannot be run in cancellable process isolation."""
 
 
 @dataclass(frozen=True)
@@ -55,6 +67,26 @@ class Budget:
     timeout_seconds: float = 60.0
 
 
+@dataclass(frozen=True)
+class _FrozenProbe:
+    """Configuration-time metadata snapshot; runtime never reads extension attributes."""
+
+    probe_id: str
+    probe_version: str
+    kind: ProbeKind
+    read_only: bool
+    description: str
+
+    def run(self, target: Target, context: ProbeContext) -> Observation:
+        raise RuntimeError("frozen probe descriptors are registry metadata, not executable probes")
+
+
+@dataclass(frozen=True)
+class _RegisteredProbe:
+    descriptor: _FrozenProbe
+    prepared_payload: bytes
+
+
 class ProbeRegistry:
     """The explicit set of probes NYX may run, with its safeguards."""
 
@@ -65,7 +97,7 @@ class ProbeRegistry:
         allow_mutating: bool = False,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
-        self._probes: dict[str, Probe] = {}
+        self._probes: dict[str, _RegisteredProbe] = {}
         self._enabled = enabled
         self._allow_mutating = allow_mutating
         self._clock = clock
@@ -74,9 +106,13 @@ class ProbeRegistry:
     # --- registration ------------------------------------------------------
 
     def register(self, probe: Probe) -> None:
-        """Register a probe. Re-registering the same id replaces the previous entry."""
+        """Prepare trusted code; re-registering refreshes immutable configuration."""
 
-        self._probes[probe.probe_id] = probe
+        descriptor = _freeze_probe(probe)
+        self._probes[descriptor.probe_id] = _RegisteredProbe(
+            descriptor=descriptor,
+            prepared_payload=prepare_trusted_probe(probe),
+        )
 
     def register_all(self, probes: Iterable[Probe]) -> None:
         for probe in probes:
@@ -87,13 +123,15 @@ class ProbeRegistry:
 
         return [
             ProbeInfo(
-                probe_id=probe.probe_id,
-                probe_version=probe.probe_version,
-                kind=probe.kind.value,
-                read_only=probe.read_only,
-                description=probe.description,
+                probe_id=registered.descriptor.probe_id,
+                probe_version=registered.descriptor.probe_version,
+                kind=registered.descriptor.kind.value,
+                read_only=registered.descriptor.read_only,
+                description=registered.descriptor.description,
             )
-            for probe in sorted(self._probes.values(), key=lambda item: item.probe_id)
+            for registered in sorted(
+                self._probes.values(), key=lambda item: item.descriptor.probe_id
+            )
         ]
 
     def get(self, probe_id: str) -> Probe:
@@ -101,7 +139,7 @@ class ProbeRegistry:
 
         self._require_enabled()
         try:
-            return self._probes[probe_id]
+            return cast(Probe, self._probes[probe_id].descriptor)
         except KeyError:
             raise ProbeRegistryError(
                 f"unknown probe {probe_id!r}; registered probes: {sorted(self._probes)}"
@@ -136,9 +174,16 @@ class ProbeRegistry:
         nothing returns ``NOT_OBSERVED`` as normal.
         """
 
-        probe = self.get(probe_id)
-        self._guard_mutating(probe, context)
-        return self._run_with_budget(probe, target, context, budget or Budget())
+        deadline_monotonic = time.monotonic() + (budget or Budget()).timeout_seconds
+        registered = self._registered(probe_id)
+        self._guard_mutating(registered.descriptor, context)
+        return self._run_with_budget(
+            registered,
+            target,
+            context,
+            budget or Budget(),
+            deadline_monotonic=deadline_monotonic,
+        )
 
     def run_many(
         self,
@@ -154,17 +199,28 @@ class ProbeRegistry:
 
         resolved = budget or Budget()
         deadline = self._clock().timestamp() + resolved.timeout_seconds
+        deadline_monotonic = time.monotonic() + resolved.timeout_seconds
         observations: list[Observation] = []
         for index, (probe_id, target, context) in enumerate(probes):
             if index >= resolved.max_steps:
                 raise ProbeRegistryError(
                     f"probe batch exceeded its step budget of {resolved.max_steps}"
                 )
-            if self._clock().timestamp() > deadline:
+            if self._clock().timestamp() > deadline or time.monotonic() > deadline_monotonic:
                 raise ProbeRegistryError(
                     f"probe batch exceeded its deadline of {resolved.timeout_seconds}s"
                 )
-            observations.append(self.run_probe(probe_id, target, context, budget=resolved))
+            registered = self._registered(probe_id)
+            self._guard_mutating(registered.descriptor, context)
+            observations.append(
+                self._run_with_budget(
+                    registered,
+                    target,
+                    context,
+                    resolved,
+                    deadline_monotonic=deadline_monotonic,
+                )
+            )
         return observations
 
     # --- internals ---------------------------------------------------------
@@ -175,9 +231,23 @@ class ProbeRegistry:
                 "the probe registry is disabled; enable it explicitly before running any probe"
             )
 
-    def _guard_mutating(self, probe: Probe, context: ProbeContext) -> None:
+    def _registered(self, probe_id: str) -> _RegisteredProbe:
+        self._require_enabled()
+        try:
+            return self._probes[probe_id]
+        except KeyError:
+            raise ProbeRegistryError(
+                f"unknown probe {probe_id!r}; registered probes: {sorted(self._probes)}"
+            ) from None
+
+    def _guard_mutating(self, probe: _FrozenProbe, context: ProbeContext) -> None:
         if probe.read_only:
             return
+        if type(context.subject) is not str or type(context.extra) is not dict:
+            raise ProbeExecutionRefused(
+                "mutating probe runtime context must use exact str subject and "
+                "exact JSON dict extra"
+            )
         if not self._allow_mutating:
             raise ProbeRegistryError(
                 f"probe {probe.probe_id!r} declares read_only=False and the mutating-probe gate "
@@ -189,11 +259,17 @@ class ProbeRegistry:
                 f"probe {probe.probe_id!r} declares read_only=False but no authorisation lookup "
                 "is wired, so no authorisation can be checked"
             )
-        action_scope = str(context.extra.get("action_scope", context.subject))
+        action_scope = context.extra.get("action_scope", context.subject)
+        actor_id = context.extra.get("actor_id", "")
+        action = context.extra.get("action", probe.probe_id)
+        if type(action_scope) is not str or type(actor_id) is not str or type(action) is not str:
+            raise ProbeExecutionRefused(
+                "mutating probe authorisation fields must be exact strings in runtime JSON data"
+            )
         now = self._clock()
         found = self._authorisation_lookup(
-            actor_id=str(context.extra.get("actor_id", "")),
-            action=str(context.extra.get("action", probe.probe_id)),
+            actor_id=actor_id,
+            action=action,
             risk_action=RiskAction.OVERWRITE_PRODUCTION_STATE,
             action_scope=action_scope,
             at=now,
@@ -220,14 +296,61 @@ class ProbeRegistry:
 
     def _run_with_budget(
         self,
-        probe: Probe,
+        registered: _RegisteredProbe,
         target: Target,
         context: ProbeContext,
         budget: Budget,
+        *,
+        deadline_monotonic: float,
     ) -> Observation:
-        deadline = self._clock().timestamp() + budget.timeout_seconds
-        if self._clock().timestamp() > deadline:
+        if time.monotonic() >= deadline_monotonic:
             raise ProbeRegistryError(
-                f"probe {probe.probe_id!r} was already past its {budget.timeout_seconds}s deadline"
+                f"probe {registered.descriptor.probe_id!r} was already past its "
+                f"{budget.timeout_seconds}s deadline"
             )
-        return probe.run(target, context)
+        try:
+            result = execute_isolated_probe(
+                registered.prepared_payload,
+                target,
+                context,
+                deadline_monotonic=deadline_monotonic,
+            )
+        except IsolatedPayloadRefused as exc:
+            raise ProbeExecutionRefused(str(exc)) from None
+        except IsolatedExecutionRefused as exc:
+            raise ProbeExecutionRefused(str(exc)) from None
+        if result.status == "completed" and isinstance(result.value, Observation):
+            return result.value
+        failure = "invalid_output" if result.status == "completed" else result.status
+        return make_observation(
+            probe=cast(Probe, registered.descriptor),
+            target=target,
+            context=context,
+            outcome=ProbeOutcome.ERROR,
+            detail=(
+                f"Probe {registered.descriptor.probe_id!r} did not complete inside its isolated "
+                "execution boundary "
+                f"({failure})."
+            ),
+        )
+
+
+def _freeze_probe(probe: Probe) -> _FrozenProbe:
+    """Read trusted extension metadata only during explicit registration preparation."""
+
+    probe_id = probe.probe_id
+    probe_version = probe.probe_version
+    kind = probe.kind
+    read_only = probe.read_only
+    description = probe.description
+    if (
+        type(probe_id) is not str
+        or type(probe_version) is not str
+        or type(kind) is not ProbeKind
+        or type(read_only) is not bool
+        or type(description) is not str
+    ):
+        raise ProbeExecutionRefused(
+            "trusted probe metadata is not a supported immutable configuration"
+        )
+    return _FrozenProbe(probe_id, probe_version, kind, read_only, description)

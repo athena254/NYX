@@ -83,8 +83,13 @@ class AuditVerifier:
     def __init__(self, repository: AuditRepository) -> None:
         self._repository = repository
 
-    def verify(self) -> VerificationReport:
-        entries = self._all_entries()
+    def verify(self, *, entries: list[AuditEntry] | None = None) -> VerificationReport:
+        """Verify an optional frozen snapshot, or read the repository as before.
+
+        A checkpoint passes the exact entries it compares with its external anchor, so hash
+        validation and anchor comparison cannot accidentally inspect different database reads.
+        """
+        entries = self._all_entries() if entries is None else entries
         previous_hash: str | None = None
         checked = 0
 

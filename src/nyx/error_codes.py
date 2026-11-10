@@ -117,7 +117,7 @@ _CATALOGUE: dict[ErrorCode, ErrorSpec] = {
         403, False, "The requested verification is not on the allowlist for this adapter or caller."
     ),
     ErrorCode.VERIFICATION_FAILED: ErrorSpec(
-        500, True, "The verification tool ran and failed to produce a usable result."
+        422, False, "A referenced verification job is unknown, unrelated, or incomplete."
     ),
     ErrorCode.RATE_LIMITED: ErrorSpec(429, True, "The caller exceeded the configured rate limit."),
     ErrorCode.DEPENDENCY_UNAVAILABLE: ErrorSpec(503, True, "A required dependency is unavailable."),

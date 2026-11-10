@@ -89,15 +89,23 @@ _EVENT_TRUST_CLASS = TrustClass.OBSERVED
 class ToolCall:
     """One tool invocation and its result, as read from the transcript.
 
-    ``result`` is the full, untruncated output text so the evidence ``content_hash`` covers the
-    whole artifact; the emitted description is truncated separately. ``arguments`` is the parsed
-    argument object (never the raw string), so a subclass can summarize it redaction-safely.
+    ``result is None`` means the transcript has not yet recorded a completion.  ``result == ""``
+    together with ``result_source_id`` means it recorded a real, empty completion.  That explicit
+    distinction is essential: a pending call cannot become an empty evidence record and block a
+    later result at the ingestion idempotency boundary.
+
+    ``result_source_id`` is the immutable message identity for a completed result.  It becomes
+    part of the evidence identity, so a later correction represented by a new transcript message
+    is an append-only evidence version rather than an overwrite.  The ``None`` fallback preserves
+    direct programmatic construction used by legacy adapters/tests, whose result is already a
+    completed in-memory value.
     """
 
     call_id: str
     tool: str
     arguments: dict[str, Any] = field(default_factory=dict)
-    result: str = ""
+    result: str | None = None
+    result_source_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -231,12 +239,17 @@ class AgentTranscriptAdapter:
             if len(statement) >= MIN_STATEMENT_LENGTH
             else None
         )
-        evidence = [self._evidence(turn, call, claim_id if claim else None) for call in turn.calls]
-        evidence_ids = [item.id for item in evidence if item.id is not None]
-
-        inputs: list[AdapterInput] = [
-            self._event(turn, event_id, claim.id if claim else None, evidence_ids)
+        # A turn is immutable across transcript polls.  Result evidence is intentionally not
+        # back-linked from this event payload: a pending call may complete after the event is
+        # ingested, and mutating its evidence-id list would turn an ordinary replay into an
+        # idempotency conflict.  Completed evidence links directly to the stable claim instead.
+        evidence = [
+            self._evidence(turn, call, claim_id if claim else None)
+            for call in turn.calls
+            if call.result is not None
         ]
+
+        inputs: list[AdapterInput] = [self._event(turn, event_id, claim.id if claim else None)]
         if claim is not None:
             inputs.append(claim)
         inputs.extend(evidence)
@@ -299,12 +312,11 @@ class AgentTranscriptAdapter:
         turn: Turn,
         event_id: str,
         claim_id: str | None = None,
-        evidence_ids: list[str] | None = None,
     ) -> EventInput:
         payload: dict[str, Any] = {
             "turn_id": turn.turn_id,
             "session_id": turn.session_id,
-            "tool_count": len(turn.calls),
+            "tool_count": len({call.call_id for call in turn.calls}),
             "has_statement": bool(_clean_statement(turn.statement)),
         }
         if turn.workspace:
@@ -313,8 +325,7 @@ class AgentTranscriptAdapter:
             payload["branch"] = turn.branch
         if claim_id is not None:
             payload["claim_id"] = claim_id
-        if evidence_ids:
-            payload["evidence_ids"] = evidence_ids
+
         return EventInput(
             id=event_id,
             source_system_id=self._config.system_id,
@@ -368,7 +379,10 @@ class AgentTranscriptAdapter:
         call: ToolCall,
         claim_id: str | None,
     ) -> EvidenceInput:
-        result = call.result or ""
+        if call.result is None:
+            raise NormalizationError("pending tool calls have no result evidence", field="result")
+        result = call.result
+        result_identity = call.result_source_id or call.call_id
         description = (
             f"Agent invoked `{call.tool}`"
             + (f" with arguments {self._summarize_args(call.arguments)}" if call.arguments else "")
@@ -376,17 +390,20 @@ class AgentTranscriptAdapter:
             + (result[:1800] if result else "(no result text)")
         )
         return EvidenceInput(
-            id=f"{self._config.system_id}:ev:{call.call_id}",
+            id=f"{self._config.system_id}:ev:{call.call_id}:{result_identity}",
             kind=self._evidence_kind(call.tool),
             title=f"Tool call: {call.tool}",
             description=description[:2000],
             source_system_id=self._config.system_id,
             source_name=self.adapter_id,
-            source_ref=f"{self.adapter_id}://tool/{call.call_id}",
+            source_ref=f"{self.adapter_id}://tool/{call.call_id}/{result_identity}",
             # A locator *into the transcript* -- where this evidence came from -- so the record is
             # re-auditable. It is a reference string, not a filesystem path, so the path-traversal
             # guard never mistakes it for an escape attempt.
-            locator=f"transcript:{turn.session_id}#turn:{turn.turn_id}#call:{call.call_id}",
+            locator=(
+                f"transcript:{turn.session_id}#turn:{turn.turn_id}#call:{call.call_id}"
+                f"#result:{result_identity}"
+            ),
             scope=Scope(
                 system_id=self._config.system_id,
                 artifact=self.adapter_id,
@@ -409,7 +426,7 @@ class AgentTranscriptAdapter:
             sensitivity=_EVIDENCE_SENSITIVITY,
             access_policy_ref=_EVIDENCE_ACCESS_POLICY_REF,
             retention_class=RetentionClass.STANDARD,
-            producer_event_id=f"{self._config.system_id}:pev:{call.call_id}",
+            producer_event_id=f"{self._config.system_id}:pev:{call.call_id}:{result_identity}",
         )
 
     @staticmethod

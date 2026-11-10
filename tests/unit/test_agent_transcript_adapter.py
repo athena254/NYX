@@ -162,6 +162,62 @@ def test_a_tool_result_is_linked_to_its_call_result(adapter: HermesAdapter) -> N
     assert "648 passed" in c2.description
 
 
+def test_pending_call_emits_no_result_evidence_until_a_stable_result_arrives(
+    transcript_db: Path, adapter: HermesAdapter
+) -> None:
+    """A missing result is pending, not an empty completed result.
+
+    The assistant turn remains byte-for-byte stable between polls.  A later tool message creates
+    one immutable evidence item keyed by the result message identity, so the normal ingestion
+    idempotency boundary never sees a mutated turn payload.
+    """
+
+    connection = sqlite3.connect(transcript_db.as_posix())
+    try:
+        connection.execute(
+            _MESSAGE_INSERT,
+            (
+                9,
+                "s1",
+                "assistant",
+                "I checked the release status with the tool.",
+                '[{"call_id": "late", "id": "late", "function": {"name": "terminal", '
+                '"arguments": {}}}]',
+                None,
+                1_792_000_500.0,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    first = adapter.fetch_for_ref("main")
+    first_event = next(i for i in first if isinstance(i, EventInput) and i.id == "agent:evt:9")
+    assert not [i for i in first if isinstance(i, EvidenceInput) and "late" in i.source_ref]
+    assert first_event.payload["tool_count"] == 1
+    assert "evidence_ids" not in first_event.payload
+
+    connection = sqlite3.connect(transcript_db.as_posix())
+    try:
+        connection.execute(
+            _MESSAGE_INSERT,
+            (10, "s1", "tool", "completed", None, "late", 1_792_000_501.0),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    second = adapter.fetch_for_ref("main")
+    second_event = next(i for i in second if isinstance(i, EventInput) and i.id == "agent:evt:9")
+    later_evidence = [
+        i for i in second if isinstance(i, EvidenceInput) and "tool/late" in i.source_ref
+    ]
+    assert second_event == first_event
+    assert len(later_evidence) == 1
+    assert later_evidence[0].id == "agent:ev:late:10"
+    assert later_evidence[0].producer_event_id == "agent:pev:late:10"
+
+
 def test_a_turn_without_a_substantive_statement_files_no_claim(adapter: HermesAdapter) -> None:
     inputs = adapter.fetch_for_ref("main")
     events = {i.id: i for i in inputs if isinstance(i, EventInput)}
@@ -184,8 +240,9 @@ def test_the_event_payload_links_the_claim_and_evidence(adapter: HermesAdapter) 
     ]
 
     assert event.payload["claim_id"] == claim.id
-    assert set(event.payload["evidence_ids"]) == {e.id for e in evidence}
-    # Evidence points back at the claim it supports, so the findings service can link them.
+    assert "evidence_ids" not in event.payload
+    # Evidence points back at the claim it supports, so the findings service can link it without
+    # mutating the already-ingested event payload when a pending result arrives later.
     for item in evidence:
         assert item.relevance_to_claim == claim.id
 

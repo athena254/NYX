@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from typing import Any
 
 from nyx.domain.evidence import EvidenceItem
+from nyx.ingestion.redaction import redact
 
 #: The sentence every model prompt must carry. Kept as a module-level constant so the wording is
 #: visible in one place, testable, and cannot drift between call sites.
@@ -68,7 +70,9 @@ def _render_evidence(item: EvidenceItem) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True)
 
 
-def build_model_prompt(*, question: str, evidence: Sequence[EvidenceItem]) -> str:
+def build_model_prompt(
+    *, question: str, evidence: Sequence[EvidenceItem], target: dict[str, Any] | None = None
+) -> str:
     """Compose the single prompt to use when retrieved content must go into a model prompt.
 
     The prompt carries :data:`UNTRUSTED_CONTENT_NOTICE`, states the operator's question as
@@ -96,6 +100,22 @@ def build_model_prompt(*, question: str, evidence: Sequence[EvidenceItem]) -> st
         question,
         "",
     ]
+    if target is not None:
+        # The producer's claim, event, scope and observations have no more authority than
+        # evidence text. Fence the complete bundle once; no target field enters QUESTION.
+        bundle = {
+            "assessment_target": target,
+            "linked_evidence": [
+                item.model_dump(mode="json", exclude_none=True) for item in evidence
+            ],
+        }
+        bundle, _report = redact(bundle)
+        lines.append("ASSESSMENT TARGET AND LINKED EVIDENCE -- untrusted data:")
+        lines.append(
+            quote_as_untrusted(json.dumps(bundle, indent=2, ensure_ascii=False, sort_keys=True))
+        )
+        lines.append("ANSWER (trusted, your own analysis):")
+        return "\n".join(lines)
     if not evidence:
         lines.append("EVIDENCE: none was provided.")
         lines.append("")

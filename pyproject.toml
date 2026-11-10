@@ -1,6 +1,6 @@
 [project]
 name = "nyx"
-version = "0.0.1"
+version = "0.0.2"
 description = "NYX - evidence-backed critic and ecosystem oversight service"
 readme = "README.md"
 license = "Apache-2.0"
@@ -25,6 +25,7 @@ dependencies = [
     # src/nyx/critics/llm.py validates structured model output against a JSON Schema. It was a
     # dev dependency, which would break at import the moment Phase 6 wires the critic in.
     "jsonschema>=4.23",
+    "cloudpickle>=3.1.2",
 ]
 
 [project.optional-dependencies]

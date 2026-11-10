@@ -8,8 +8,9 @@ visible next to any later success.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from nyx.disputes.models import VerificationJob
@@ -30,6 +31,38 @@ class VerificationJobRepository:
     def get(self, job_id: str) -> VerificationJob | None:
         row = self._session.get(VerificationJobRow, job_id)
         return None if row is None else _to_domain(row)
+
+    def claim(self, job_id: str, *, started_at: datetime) -> bool:
+        """Claim one queued attempt in the caller's transaction before executing its check."""
+        claimed = self._session.execute(
+            update(VerificationJobRow)
+            .where(VerificationJobRow.id == job_id, VerificationJobRow.status == "queued")
+            .values(status="running", started_at=started_at)
+            .returning(VerificationJobRow.id)
+        ).scalar_one_or_none()
+        return claimed is not None
+
+    def record_result(self, job: VerificationJob) -> None:
+        """Persist the result of a claimed attempt without rewriting request identity/history.
+
+        The claim and completion share the service transaction: interruption rolls back the
+        claim, while committed terminal attempts cannot be claimed or completed again.
+        """
+        self._session.execute(
+            update(VerificationJobRow)
+            .where(VerificationJobRow.id == job.id, VerificationJobRow.status == "running")
+            .values(
+                status=job.status.value,
+                outcome=None if job.outcome is None else job.outcome.value,
+                result_summary=job.result_summary,
+                independence=job.independence,
+                evidence_ids=list(job.evidence_ids),
+                tool_run_refs=list(job.tool_run_refs),
+                failure_details=job.failure_details,
+                started_at=job.started_at,
+                completed_at=job.completed_at,
+            )
+        )
 
     def list(
         self,

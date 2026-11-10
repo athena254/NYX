@@ -41,7 +41,6 @@ def repository_root() -> Path:
     return candidates[-1]
 
 
-
 @dataclass(frozen=True)
 class MigrationState:
     """The result of comparing the database revision with the script head."""

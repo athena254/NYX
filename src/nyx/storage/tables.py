@@ -120,6 +120,8 @@ class EvidenceRow(Base):
     integrity_method: Mapped[str] = mapped_column(String(32), nullable=False)
     producer_identity: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     verification: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    claimed_producer_identity: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    claimed_verification: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     relevance_to_claim: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     relevance_to_finding: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     relevance_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
@@ -307,6 +309,7 @@ class CriticRunRow(Base):
     failure_details: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     llm_io: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     finding_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    assessment_job_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 
 
 class RebuttalRow(Base):

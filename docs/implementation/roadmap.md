@@ -555,3 +555,36 @@ general-purpose assistant that performs actions.
 NYX's value is that its verdicts are deterministic and evidence-linked. The conversational layer has
 exactly the powers a human has through the API and no more: it can query anything, file a rebuttal,
 and request verification. It cannot create a finding or change a lifecycle state.
+
+---
+
+## Release milestone — v0.0.2
+
+**Status: code complete and gated; live model acceptance outstanding.**
+
+The release plan is `docs/implementation/v0.0.2-plan.md`; the changelog is `CHANGELOG-v0.0.2.md`.
+Twelve tasks, delivered across three lanes (`feature/v0.0.2`, `fix/v002-luna`, `fix/v002-terra`) and a
+reviewed checkpoint branch, integrated into `feature/v0.0.2`.
+
+| Task | State | Evidence |
+| --- | --- | --- |
+| 1 Authenticate and authorise the whole API | done | `tests/security/test_v002_api_auth_matrix.py`, harness GAP-01 |
+| 2 Stop confidential data leaking through derived outputs | done | `tests/security/test_v002_derived_privacy.py`, harness GAP-02 |
+| 3 Validate citations and verification attribution | done | `tests/integration/test_v002_disposition_refs.py`, harness GAP-03 |
+| 4 Correct completion support and structured outcomes | done | `tests/unit/test_critic_c001_strength.py`; corpus `v002-c001s-*` |
+| 5 Verify the whole audit chain against its anchor | done | `tests/unit/test_v002_checkpoint_composite.py`, harness GAP-05 |
+| 6 Give the model the actual assessment target | done | `tests/unit/test_v002_llm_target.py`, harness GAP-13 |
+| 7 Durable unfinished work and reassessment | done | `tests/integration/test_assessment_recovery.py`, `tests/integration/test_assessment_cli.py`, harness GAP-07 |
+| 8 Pending calls are not completed tool evidence | done | `tests/unit/test_agent_transcript_adapter.py`, harness GAP-08 |
+| 9 Enforce probe execution budgets | done | `tests/security/test_probe_deadlines.py`, harness GAP-09 |
+| 10 Core works without conversational extras | done | `tests/integration/test_v002_optional_conversational.py`, clean-install receipts |
+| 11 Quality and real integration acceptance | done, with one open item | corpus (132 cases), harness (17 cases), outage probe; **live model call outstanding** |
+| 12 Integration, version and evidence | done | this section, the changelog, and the full gate set |
+
+**Open item:** the remote deployment has no configured model or key, so Task 11's live model
+acceptance is not claimed. The outage probe exercises the transport against an owned loopback
+relay; it is not a model-quality measurement. No paid upstream route was used.
+
+**Two implementation findings surfaced by the corpus** and are recorded rather than absorbed:
+C-012's docstring overstates RULE 1, and the deterministic outcome reader is text-based
+(`v002-c012-04`, `v002-adv-02` in the corpus).

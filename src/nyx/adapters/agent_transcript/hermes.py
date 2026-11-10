@@ -44,7 +44,8 @@ _TOOL_ROLE = "tool"
 #: up as a clear :class:`OperationalError` on the named column rather than a silent wrong read.
 _SELECT_SESSIONS = "SELECT id, cwd, git_branch, started_at FROM sessions"
 _SELECT_TOOL_RESULTS = (
-    "SELECT tool_call_id, content FROM messages WHERE role = ? AND tool_call_id IS NOT NULL"
+    "SELECT id, tool_call_id, content FROM messages "
+    "WHERE role = ? AND tool_call_id IS NOT NULL ORDER BY id"
 )
 _SELECT_TURNS = (
     "SELECT id, session_id, content, tool_calls, tool_call_id, timestamp "
@@ -138,18 +139,20 @@ class HermesAdapter(AgentTranscriptAdapter):
         return rows
 
     @staticmethod
-    def _read_tool_results(connection: sqlite3.Connection) -> dict[str, str]:
-        results: dict[str, str] = {}
-        for tool_call_id, content in connection.execute(_SELECT_TOOL_RESULTS, (_TOOL_ROLE,)):
+    def _read_tool_results(connection: sqlite3.Connection) -> dict[str, list[tuple[str, str]]]:
+        results: dict[str, list[tuple[str, str]]] = {}
+        for result_id, tool_call_id, content in connection.execute(
+            _SELECT_TOOL_RESULTS, (_TOOL_ROLE,)
+        ):
             if tool_call_id is not None:
-                results[str(tool_call_id)] = content or ""
+                results.setdefault(str(tool_call_id), []).append((str(result_id), content or ""))
         return results
 
     def _read_turns(
         self,
         connection: sqlite3.Connection,
         sessions: dict[str, dict[str, Any]],
-        tool_results: dict[str, str],
+        tool_results: dict[str, list[tuple[str, str]]],
     ) -> list[Turn]:
         turns: list[Turn] = []
         for row in connection.execute(_SELECT_TURNS, (_ASSISTANT_ROLE,)):
@@ -171,7 +174,9 @@ class HermesAdapter(AgentTranscriptAdapter):
         return turns
 
     @staticmethod
-    def _parse_tool_calls(tool_calls_raw: object, tool_results: dict[str, str]) -> list[ToolCall]:
+    def _parse_tool_calls(
+        tool_calls_raw: object, tool_results: dict[str, list[tuple[str, str]]]
+    ) -> list[ToolCall]:
         if not tool_calls_raw:
             return []
         try:
@@ -192,18 +197,29 @@ class HermesAdapter(AgentTranscriptAdapter):
             call_id = call.get("call_id") or call.get("id") or str(len(parsed))
             if not name:
                 continue
-            result = tool_results.get(str(call.get("call_id")))
-            if result is None and call.get("id"):
-                result = tool_results.get(str(call["id"]))
             arguments_source = function.get("arguments") if isinstance(function, dict) else None
-            parsed.append(
-                ToolCall(
-                    call_id=str(call_id),
-                    tool=str(name),
-                    arguments=_parse_arguments(arguments_source),
-                    result=result or "",
+            result_records = tool_results.get(str(call.get("call_id")))
+            if result_records is None and call.get("id"):
+                result_records = tool_results.get(str(call["id"]))
+            if result_records is None:
+                parsed.append(
+                    ToolCall(
+                        call_id=str(call_id),
+                        tool=str(name),
+                        arguments=_parse_arguments(arguments_source),
+                    )
                 )
-            )
+                continue
+            for result_source_id, result in result_records:
+                parsed.append(
+                    ToolCall(
+                        call_id=str(call_id),
+                        tool=str(name),
+                        arguments=_parse_arguments(arguments_source),
+                        result=result,
+                        result_source_id=result_source_id,
+                    )
+                )
         return parsed
 
 

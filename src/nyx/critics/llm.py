@@ -50,10 +50,13 @@ CRITIC_ID = "c011-llm-critic"
 CRITIC_VERSION = "1.0.0"
 
 #: Bumped whenever the prompt text changes, so a stored run says which template produced it.
-PROMPT_TEMPLATE_VERSION = "1.0.0"
+PROMPT_TEMPLATE_VERSION = "1.1.0"
 
 #: The transport enforces this; the critic does not run its own timer.
 DEFAULT_TIMEOUT_SECONDS = 30.0
+
+# Refuse rather than silently omit accepted target facts. This is a serialized UTF-8 limit.
+MAX_PROMPT_BYTES = 131_072
 
 _ShortText = Annotated[str, StringConstraints(min_length=1, max_length=1000)]
 _LimitedText = Annotated[str, StringConstraints(min_length=1, max_length=500)]
@@ -261,7 +264,20 @@ class LlmCritic:
                 ),
             )
 
-        prompt = self._build_prompt(context)
+        try:
+            prompt = self._build_prompt(context)
+        except (ValueError, TypeError, RecursionError):
+            return _failure_result(
+                context,
+                status=CriticResultStatus.ERROR,
+                rationale=(
+                    "The assessment context could not be encoded within the "
+                    f"{MAX_PROMPT_BYTES}-byte prompt limit. No model call was made."
+                ),
+                model_provider=self.model_provider,
+                model_version=self.model_version,
+                prompt_version=PROMPT_TEMPLATE_VERSION,
+            )
 
         def fail(
             status: CriticResultStatus,
@@ -441,7 +457,7 @@ class LlmCritic:
     def _build_prompt(self, context: CriticContext) -> str:
         question = "\n".join(
             (
-                f"Assess event {context.target_event.id} using only the evidence quoted below.",
+                "Assess the target quoted below using only its quoted evidence and context.",
                 f"Assessed as of {self._clock().isoformat()}.",
                 f"Prompt template version: {PROMPT_TEMPLATE_VERSION}.",
                 "Return JSON only, conforming exactly to this JSON Schema:",
@@ -450,7 +466,28 @@ class LlmCritic:
                 "disposition and do not claim to have changed any lifecycle state.",
             )
         )
-        return build_model_prompt(question=question, evidence=context.linked_evidence)
+        target = {
+            "event": context.target_event.model_dump(mode="json", exclude_none=True),
+            "claim": (
+                context.linked_claim.model_dump(mode="json", exclude_none=True)
+                if context.linked_claim is not None
+                else None
+            ),
+            "scope": context.scope.model_dump(mode="json", exclude_none=True),
+            "related_claims": [
+                claim.model_dump(mode="json", exclude_none=True) for claim in context.related_claims
+            ],
+            "observations": [
+                item.model_dump(mode="json", exclude_none=True) for item in context.observations
+            ],
+            "assessment_time": context.now.isoformat(),
+        }
+        prompt = build_model_prompt(
+            question=question, evidence=context.linked_evidence, target=target
+        )
+        if len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
+            raise ValueError("assessment context exceeds serialized prompt budget")
+        return prompt
 
 
 def _finding_rejection(

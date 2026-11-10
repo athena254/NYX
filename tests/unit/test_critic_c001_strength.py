@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from nyx.critics.base import CriticResultStatus
 from nyx.critics.c001_completion_vs_verification import CompletionVsVerificationCritic
 from nyx.critics.context import build_context
@@ -161,6 +163,23 @@ def test_the_same_claim_with_a_linked_independent_observation_passes() -> None:
     assert result.result is CriticResultStatus.NO_FINDING
     assert result.verification_strength is VerificationStrength.INDEPENDENTLY_OBSERVED_END_STATE
     assert result.observation_refs == ["obs_1"]
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [ProbeOutcome.NOT_OBSERVED, ProbeOutcome.ERROR, ProbeOutcome.SKIPPED],
+)
+def test_only_an_observed_outcome_can_support_completion(outcome: ProbeOutcome) -> None:
+    """A covering probe that failed to observe is not positive completion support."""
+
+    result = _strength().run(_context(observations=[_observation(outcome=outcome)]))
+    assert result.result is CriticResultStatus.FINDING
+    assert result.verification_strength is VerificationStrength.NONE
+    assert result.observation_refs == ["obs_1"]
+    explanation = " ".join([result.proposition, *result.observations, result.rationale])
+    assert outcome.value in explanation
+    assert "No observation gathered by NYX is linked" not in explanation
+    assert "not evidence that the work is defective" in " ".join(result.limitations)
 
 
 def test_the_passing_result_still_observes_that_it_is_not_certification() -> None:

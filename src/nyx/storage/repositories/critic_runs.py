@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import builtins
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -37,6 +39,7 @@ class CriticRunRepository:
             failure_details=run.failure_details,
             llm_io=run.llm_io,
             finding_id=run.finding_id,
+            assessment_job_id=run.assessment_job_id,
         )
         self._session.add(row)
         return run
@@ -72,6 +75,10 @@ class CriticRunRepository:
         statement = statement.limit(limit).offset(offset)
         return [_to_domain(row) for row in self._session.scalars(statement)]
 
+    def list_for_assessment_job(self, assessment_job_id: str) -> builtins.list[CriticRun]:
+        statement = select(CriticRunRow).where(CriticRunRow.assessment_job_id == assessment_job_id)
+        return [_to_domain(row) for row in self._session.scalars(statement)]
+
 
 def _to_domain(row: CriticRunRow) -> CriticRun:
     return CriticRun.model_validate(
@@ -95,5 +102,6 @@ def _to_domain(row: CriticRunRow) -> CriticRun:
             "failure_details": row.failure_details,
             "llm_io": row.llm_io,
             "finding_id": row.finding_id,
+            "assessment_job_id": row.assessment_job_id,
         }
     )

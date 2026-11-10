@@ -155,7 +155,7 @@ def test_the_claim_and_evidence_link_through_the_event(
     stored_event = service.get_event(event.id)
     assert stored_event is not None
     assert stored_event.payload["claim_id"] == claim.id
-    assert set(stored_event.payload["evidence_ids"]) == set(evidence_ids)
+    assert "evidence_ids" not in stored_event.payload
 
     stored_claim = service.get_claim(claim.id)
     assert stored_claim is not None

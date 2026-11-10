@@ -119,6 +119,19 @@
         }
       }
     },
+    "claimed_producer_identity": { "$ref": "#/$defs/principal_ref" },
+    "claimed_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": { "type": "string", "enum": ["not_checked", "verified", "failed", "inconclusive"] },
+        "method": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "verified_at": { "$ref": "#/$defs/timestamp" },
+        "verified_by": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "notes": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
     "relevance_to_claim": { "$ref": "#/$defs/identifier" },
     "relevance_to_finding": { "$ref": "#/$defs/identifier" },
     "relevance_note": {

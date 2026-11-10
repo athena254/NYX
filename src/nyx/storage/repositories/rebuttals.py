@@ -35,6 +35,15 @@ class RebuttalRepository:
         row = self._session.get(RebuttalRow, rebuttal_id)
         return None if row is None else _to_domain(row)
 
+    def cites_evidence(self, *, finding_id: str, evidence_id: str) -> bool:
+        """Resolve a case's append-only evidence relationship without a history page cutoff."""
+        statement = (
+            select(RebuttalRow.evidence_ids)
+            .where(RebuttalRow.finding_id == finding_id)
+            .execution_options(yield_per=100)
+        )
+        return any(evidence_id in references for references in self._session.scalars(statement))
+
     def list(self, *, finding_id: str, limit: int = 100, offset: int = 0) -> list[Rebuttal]:
         """Return a finding's rebuttals oldest-first, so history reads in the order it happened."""
 

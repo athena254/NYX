@@ -10,9 +10,17 @@ within its declared scope; it is never a statement that the claim is true.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy.orm import Session
 
-from nyx.api.deps import get_finding_service
+from nyx.api.deps import get_finding_service, get_session
 from nyx.api.errors import ApiError, request_id_for
+from nyx.api.evidence_projection import (
+    event_depends_on_unreadable_evidence,
+    finding_depends_on_unreadable_evidence,
+    masked_text,
+)
+from nyx.auth.dependency import current_principal
+from nyx.auth.principal import AuthenticatedPrincipal
 from nyx.critics.registry import CriticRegistryError, list_critics
 from nyx.domain.base import Identifier, NyxModel
 from nyx.domain.enums import CriticResultStatus
@@ -85,6 +93,8 @@ def get_critics() -> CriticListResponse:
 def run_critics(
     payload: CriticRunRequest,
     request: Request,
+    principal: AuthenticatedPrincipal = Depends(current_principal),
+    session: Session = Depends(get_session),
     service: FindingService = Depends(get_finding_service),
 ) -> CriticRunResponse:
     """Run the selected critics against one event.
@@ -100,17 +110,21 @@ def run_critics(
         code = ErrorCode.INVALID_REQUEST if "unknown critic" in text else ErrorCode.NOT_FOUND
         raise ApiError(code, message=text) from exc
 
-    return CriticRunResponse(
-        results=[
+    results: list[CriticRunResult] = []
+    for outcome in outcomes:
+        finding = service.get_finding(outcome.finding_id) if outcome.finding_id else None
+        if finding is not None:
+            mask = finding_depends_on_unreadable_evidence(session, finding, principal)
+        else:
+            mask = event_depends_on_unreadable_evidence(session, payload.event_id, principal)
+        results.append(
             CriticRunResult(
                 critic_id=outcome.critic_id,
                 critic_version=outcome.critic_version,
                 result=outcome.result,
-                proposition=outcome.proposition,
-                rationale=outcome.rationale,
+                proposition=masked_text(outcome.proposition, mask_derived_content=mask) or "",
+                rationale=masked_text(outcome.rationale, mask_derived_content=mask) or "",
                 finding_id=outcome.finding_id,
             )
-            for outcome in outcomes
-        ],
-        request_id=request_id_for(request),
-    )
+        )
+    return CriticRunResponse(results=results, request_id=request_id_for(request))

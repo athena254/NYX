@@ -29,12 +29,22 @@ clean service and this package stays independently testable against a mock trans
 from __future__ import annotations
 
 import json
-from typing import Any
+import sys
+from typing import TYPE_CHECKING, Any
 
-from mcp.server.mcpserver import MCPServer
+if TYPE_CHECKING:
+    from mcp.server.mcpserver import MCPServer
 
 from nyx.conversational.client import NyxClient, NyxClientError
 from nyx.domain.enums import RebuttalRequestedOutcome
+from nyx.error_codes import ErrorCode
+
+
+class OptionalDependencyUnavailable(RuntimeError):
+    """An explicitly invoked optional surface is not installed."""
+
+    code = ErrorCode.DEPENDENCY_UNAVAILABLE
+
 
 SERVER_NAME = "nyx"
 SERVER_INSTRUCTIONS = """\
@@ -108,7 +118,24 @@ _TOOL_DESCRIPTIONS = {
 def build_server(client: NyxClient | None = None) -> MCPServer:
     """Build the NYX MCP server over ``client`` (a fresh one when omitted)."""
 
-    nyx = client or NyxClient()
+    try:
+        from mcp.server.mcpserver import MCPServer
+    except ModuleNotFoundError as exc:
+        if exc.name != "mcp" and not (exc.name or "").startswith("mcp."):
+            raise
+        raise OptionalDependencyUnavailable(
+            "MCP serving requires nyx[conversational]; install that extra with the locked version."
+        ) from None
+
+    if client is None:
+        from nyx.config import Settings
+
+        settings = Settings()
+        client = NyxClient(
+            base_url=settings.client_base_url or f"http://{settings.host}:{settings.port}",
+            api_key=settings.client_api_key,
+        )
+    nyx = client
     server = MCPServer(name=SERVER_NAME, instructions=SERVER_INSTRUCTIONS)
 
     def _json(value: Any) -> str:
@@ -255,7 +282,11 @@ FORBIDDEN_TOOLS = (
 def main() -> None:
     """Run the NYX MCP server over stdio."""
 
-    build_server().run(transport="stdio")
+    try:
+        build_server().run(transport="stdio")
+    except OptionalDependencyUnavailable as exc:
+        print(json.dumps({"error": exc.code.value, "message": str(exc)}), file=sys.stderr)
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":

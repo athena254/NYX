@@ -11,7 +11,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from nyx.assessment.service import AssessmentScheduler
 from nyx.config import Settings
+from nyx.domain.base import PrincipalRef
 from nyx.domain.claims import Claim
 from nyx.domain.enums import SystemStatus
 from nyx.domain.events import Event
@@ -35,6 +37,7 @@ class IngestionService:
         self._settings = settings or Settings()
         self._session_factory = session_factory
         self._gateway = IngestionGateway(self._settings)
+        self._assessment = AssessmentScheduler()
 
     @property
     def settings(self) -> Settings:
@@ -54,9 +57,12 @@ class IngestionService:
         idempotency_key: str | None = None,
     ) -> IngestResult:
         with session_scope(self._session_factory) as session:
-            return self._gateway.ingest_event(
+            result = self._gateway.ingest_event(
                 session, payload, request_id=request_id, idempotency_key=idempotency_key
             )
+            if result.status == "created" and result.record_id is not None:
+                self._assessment.enqueue_event(session, result.record_id)
+            return result
 
     def ingest_event_batch(
         self,
@@ -76,7 +82,10 @@ class IngestionService:
         results: list[IngestResult] = []
         for payload in payloads:
             with session_scope(self._session_factory) as session:
-                results.append(self._gateway.ingest_event(session, payload, request_id=request_id))
+                result = self._gateway.ingest_event(session, payload, request_id=request_id)
+                if result.status == "created" and result.record_id is not None:
+                    self._assessment.enqueue_event(session, result.record_id)
+                results.append(result)
         return results
 
     def register_claim(
@@ -97,11 +106,24 @@ class IngestionService:
         *,
         request_id: str,
         idempotency_key: str | None = None,
+        submitted_by: PrincipalRef | None = None,
     ) -> IngestResult:
         with session_scope(self._session_factory) as session:
-            return self._gateway.ingest_evidence(
-                session, payload, request_id=request_id, idempotency_key=idempotency_key
-            )
+            if submitted_by is None:
+                result = self._gateway.ingest_evidence(
+                    session, payload, request_id=request_id, idempotency_key=idempotency_key
+                )
+            else:
+                result = self._gateway.ingest_evidence(
+                    session,
+                    payload,
+                    request_id=request_id,
+                    idempotency_key=idempotency_key,
+                    submitted_by=submitted_by,
+                )
+            if result.status == "created" and result.record_id is not None:
+                self._assessment.enqueue_evidence(session, result.record_id)
+            return result
 
     def get_event(self, event_id: str) -> Event | None:
         with session_scope(self._session_factory) as session:

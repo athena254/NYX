@@ -541,6 +541,7 @@ class IngestionGateway:
         *,
         request_id: str,
         idempotency_key: str | None = None,
+        submitted_by: PrincipalRef | None = None,
     ) -> IngestResult:
         error = self._size_check(raw, request_id)
         if error is not None:
@@ -612,8 +613,10 @@ class IngestionGateway:
                 valid_until=evidence_input.valid_until,
                 content_hash=evidence_input.content_hash,
                 integrity_method=evidence_input.integrity_method,
-                producer_identity=evidence_input.producer_identity,
-                verification=evidence_input.verification,
+                producer_identity=(submitted_by if submitted_by is not None else None),
+                verification=None,
+                claimed_producer_identity=evidence_input.producer_identity,
+                claimed_verification=evidence_input.verification,
                 relevance_to_claim=evidence_input.relevance_to_claim,
                 relevance_to_finding=evidence_input.relevance_to_finding,
                 relevance_note=evidence_input.relevance_note,
@@ -641,6 +644,7 @@ class IngestionGateway:
                 request_hash=request_hash,
                 rationale=self._redaction_reason("evidence", report),
             )
+        audit_actor = submitted_by if submitted_by is not None else None
         self._audit(
             session,
             action="evidence.registered",
@@ -650,6 +654,7 @@ class IngestionGateway:
             correlation_id=None,
             source_system_id=evidence.source_system_id,
             reason=self._redaction_reason("evidence", report),
+            actor=audit_actor,
         )
         return IngestResult(status="created", record_id=evidence.id, record=evidence)
 
@@ -666,12 +671,14 @@ class IngestionGateway:
         correlation_id: str | None,
         source_system_id: str | None,
         reason: str,
+        actor: PrincipalRef | None = None,
     ) -> None:
-        actor = (
-            PrincipalRef(id=source_system_id, kind=PrincipalKind.SYSTEM)
-            if source_system_id is not None
-            else _ACTOR
-        )
+        if actor is None:
+            actor = (
+                PrincipalRef(id=source_system_id, kind=PrincipalKind.SYSTEM)
+                if source_system_id is not None
+                else _ACTOR
+            )
         AuditWriter(session).append(
             AuditEntryInput(
                 actor=actor,

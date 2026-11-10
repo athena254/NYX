@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import builtins
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -60,6 +62,15 @@ class AuditRepository:
         if action is not None:
             statement = statement.where(AuditRow.action == action)
         statement = statement.order_by(AuditRow.sequence).limit(limit).offset(offset)
+        return [_to_domain(row) for row in self._session.scalars(statement)]
+
+    def list_all(self) -> builtins.list[AuditEntry]:
+        """Freeze the chain from one ordered SELECT for composite verification.
+
+        This intentionally materializes the same chain size as AuditVerifier. One statement
+        avoids stitching separate paginated SQLite reads into an alleged consistent snapshot.
+        """
+        statement = select(AuditRow).order_by(AuditRow.sequence)
         return [_to_domain(row) for row in self._session.scalars(statement)]
 
     def last(self) -> AuditEntry | None:

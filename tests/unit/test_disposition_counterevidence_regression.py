@@ -163,7 +163,7 @@ def test_a_disposition_citing_counterevidence_leaves_the_finding_readable(
         _add_review_record_evidence(session)
 
     _file_rebuttal(client)
-    job_id = _run_verification_job(client)
+    _run_verification_job(client)
 
     posted = client.post(
         f"{API}/findings/{_FINDING}/dispositions",
@@ -172,7 +172,7 @@ def test_a_disposition_citing_counterevidence_leaves_the_finding_readable(
             "rationale": "The completion claim cannot be verified from the linked records.",
             "decided_by": "principal_operator",
             "policy_version": "1.0",
-            "verification_run_ids": [job_id],
+            "verification_run_ids": [],
             "counterevidence_ids": [_REVIEW_EVIDENCE],
         },
     )
