@@ -425,6 +425,20 @@ class _ExtendedLimitInformation(ctypes.Structure):
     ]
 
 
+def _win_error() -> Any:
+    """Return the Windows ``WinError`` factory, or raise a portable error off Windows.
+
+    ``ctypes.WinError`` exists only on Windows. Naming it directly is an AttributeError if the
+    Windows-only methods below are ever reached on POSIX, and a type error for any checker run
+    there. Every Windows API failure goes through this instead.
+    """
+
+    win_error = getattr(ctypes, "WinError", None)
+    if win_error is None:
+        raise OSError("Windows Job Object operations are not available on this platform")
+    return win_error
+
+
 class _WindowsJob:
     _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
     _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
@@ -451,7 +465,7 @@ class _WindowsJob:
         kernel32.SetInformationJobObject.restype = wintypes.BOOL
         handle = kernel32.CreateJobObjectW(None, None)
         if not handle:
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise _win_error()(ctypes.get_last_error())
         limits = _ExtendedLimitInformation()
         limits.BasicLimitInformation.LimitFlags = cls._JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if not kernel32.SetInformationJobObject(
@@ -462,7 +476,7 @@ class _WindowsJob:
         ):
             error = ctypes.get_last_error()
             kernel32.CloseHandle(handle)
-            raise ctypes.WinError(error)
+            raise _win_error()(error)
         return cls(int(handle))
 
     def assign(self, pid: int) -> None:
@@ -474,10 +488,10 @@ class _WindowsJob:
             self._PROCESS_SET_QUOTA | self._PROCESS_TERMINATE, False, pid
         )
         if not process_handle:
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise _win_error()(ctypes.get_last_error())
         try:
             if not self._kernel32.AssignProcessToJobObject(self._handle, process_handle):
-                raise ctypes.WinError(ctypes.get_last_error())
+                raise _win_error()(ctypes.get_last_error())
         finally:
             self._kernel32.CloseHandle(process_handle)
 
