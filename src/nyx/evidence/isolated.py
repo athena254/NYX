@@ -252,7 +252,7 @@ def _isolated_worker(connection: Connection) -> None:
 
     try:
         if os.name == "posix":
-            os.setsid()  # type: ignore[attr-defined]
+            _posix("setsid")()
             connection.send_bytes(b"R")
         prepared_probe = connection.recv_bytes(MAX_INPUT_BYTES)
         runtime_payload = connection.recv_bytes(MAX_INPUT_BYTES)
@@ -365,18 +365,50 @@ def _remaining(deadline: float) -> float:
     return deadline - time.monotonic()
 
 
+def _posix(name: str) -> Any:
+    """Resolve a POSIX-only ``os`` attribute, or raise on a platform that lacks it.
+
+    ``os.setsid``/``getpgid``/``getpgrp``/``killpg`` exist only on POSIX. Naming them directly
+    is an AttributeError on Windows and a type error for any checker run there; a
+    ``# type: ignore`` would then be *unused* on POSIX, which strict mypy also rejects. Every
+    platform-specific attribute goes through this instead.
+    """
+
+    attribute = getattr(os, name, None)
+    if attribute is None:
+        raise OSError(f"{name} is not available on this platform")
+    return attribute
+
+
+def _kernel32() -> Any:
+    """Load ``kernel32``, which exists only on Windows."""
+
+    windll = getattr(ctypes, "WinDLL", None)
+    if windll is None:
+        raise OSError("Windows Job Object operations are not available on this platform")
+    return windll("kernel32", use_last_error=True)
+
+
+def _last_error() -> int:
+    """Return the last Windows error code, or 0 on a platform that has none."""
+
+    getter = getattr(ctypes, "get_last_error", None)
+    return int(getter()) if getter is not None else 0
+
+
 def _owns_posix_group(pid: int) -> bool:
-    return bool(
-        os.getpgid(pid) == pid  # type: ignore[attr-defined]
-        and os.getpgrp() != pid  # type: ignore[attr-defined]
-    )
+    getpgid = getattr(os, "getpgid", None)
+    getpgrp = getattr(os, "getpgrp", None)
+    if getpgid is None or getpgrp is None:
+        return False
+    return bool(getpgid(pid) == pid and getpgrp() != pid)
 
 
 def _reap_process(process: SpawnProcess, *, posix_group_owned: bool) -> None:
     if posix_group_owned and process.pid is not None:
         with suppress(ProcessLookupError, OSError):
             if _owns_posix_group(process.pid):
-                os.killpg(process.pid, signal.SIGKILL)  # type: ignore[attr-defined]
+                _posix("killpg")(process.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
     process.join(timeout=1.0)
     if process.is_alive():
         process.terminate()
@@ -447,13 +479,13 @@ class _WindowsJob:
 
     def __init__(self, handle: int) -> None:
         self._handle = handle
-        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._kernel32 = _kernel32()
         self._kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         self._kernel32.CloseHandle.restype = wintypes.BOOL
 
     @classmethod
     def create_kill_on_close(cls) -> _WindowsJob:
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32 = _kernel32()
         kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
         kernel32.CreateJobObjectW.restype = wintypes.HANDLE
         kernel32.SetInformationJobObject.argtypes = [
@@ -465,7 +497,7 @@ class _WindowsJob:
         kernel32.SetInformationJobObject.restype = wintypes.BOOL
         handle = kernel32.CreateJobObjectW(None, None)
         if not handle:
-            raise _win_error()(ctypes.get_last_error())
+            raise _win_error()(_last_error())
         limits = _ExtendedLimitInformation()
         limits.BasicLimitInformation.LimitFlags = cls._JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if not kernel32.SetInformationJobObject(
@@ -474,7 +506,7 @@ class _WindowsJob:
             ctypes.byref(limits),
             ctypes.sizeof(limits),
         ):
-            error = ctypes.get_last_error()
+            error = _last_error()
             kernel32.CloseHandle(handle)
             raise _win_error()(error)
         return cls(int(handle))
@@ -488,10 +520,10 @@ class _WindowsJob:
             self._PROCESS_SET_QUOTA | self._PROCESS_TERMINATE, False, pid
         )
         if not process_handle:
-            raise _win_error()(ctypes.get_last_error())
+            raise _win_error()(_last_error())
         try:
             if not self._kernel32.AssignProcessToJobObject(self._handle, process_handle):
-                raise _win_error()(ctypes.get_last_error())
+                raise _win_error()(_last_error())
         finally:
             self._kernel32.CloseHandle(process_handle)
 
