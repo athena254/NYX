@@ -6,7 +6,7 @@
 #
 # Every entry below is a HIGH CVE in a Debian trixie base package for which Debian has released
 # NO fix. The image is `python:3.12-slim` = trixie, the Dockerfile runs `apt-get upgrade`, and
-# these eight survive it. Debian's security tracker marks each source package vulnerable in
+# these eleven survive it. Debian's security tracker marks each source package vulnerable in
 # trixie and fixed only in forky/sid; Docker Hub publishes no forky variant of the `python`
 # image, so there is no patched base to move to.
 #
@@ -37,3 +37,16 @@ CVE-2026-54369
 
 # --- perl (perl-base): vulnerable in trixie, fixed in forky/sid ---
 CVE-2026-9538
+
+# --- sqlite3 (libsqlite3-0): FTS5 and the session extension; fixed in sid (3.54.1-1) ---
+# All three need SQLite built with FTS5 (two are FTS5-only) or the session-changeset extension.
+# Debian marks trixie `<no-dsa>` (minor issue) and forky vulnerable; only sid carries 3.54.1.
+# NYX uses SQLite through SQLAlchemy's pysqlite dialect only: `grep -ri 'fts5|sqlite3session'`
+# over `src/` and `Dockerfile` returns nothing, so neither vulnerable code path is compiled into
+# use. The practical exposure is a crafted database file, and the container runs as uid 10001.
+#   fts5MergeRowidLists undersized output buffer (prefix MATCH on a detail=none table)
+CVE-2026-119373
+#   fts5DoSecureDelete heap overflow via crafted footer key offsets
+CVE-2026-119374
+#   session changesets arbitrary code execution
+CVE-2026-119379

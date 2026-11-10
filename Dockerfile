@@ -22,10 +22,10 @@ WORKDIR /app
 # baked into the image.
 #
 # This clears whatever Debian HAS fixed since the image was published. It does not clear the
-# eight HIGH CVEs listed in .trivyignore: Debian's security tracker marks trixie vulnerable with
-# no fix for all of them (util-linux, systemd, ncurses, acl and perl are each marked <no-dsa>),
-# and the fixes exist only in forky/sid. No forky-based Python image is published, so a future
-# scan may still report them until the base moves.
+# eleven HIGH CVEs listed in .trivyignore: Debian's security tracker marks trixie vulnerable with
+# no fix for all of them (util-linux, systemd, ncurses, acl, perl and sqlite3 are each marked
+# <no-dsa>), and the fixes exist only in forky/sid. No forky-based Python image is published, so a
+# future scan may still report them until the base moves.
 RUN apt-get update \
  && apt-get upgrade -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*

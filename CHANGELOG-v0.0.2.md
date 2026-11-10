@@ -66,8 +66,10 @@
 - **C-012's documentation overstates RULE 1.** The module docstring says an unrecognised verb is
   not a scope violation; RULE 1 compares declared targets against the allow-list regardless of
   verb. Recorded in the corpus (`v002-c012-04`).
-- **The container image base still carries eight Debian CVEs** with no fix in trixie. They are
-  listed in `.trivyignore` with the re-check condition; see `docs/operations.md`.
+- **The container image base still carries eleven Debian CVEs** with no fix in trixie. They are
+  listed in `.trivyignore` with the re-check condition; see `docs/operations.md`. Three were added
+  in this release (sqlite3 FTS5 and session-extension issues) after the scan failed on the pushed
+  commit — NYX does not use either code path, and Debian marks them `<no-dsa>`.
 
 ## Compatibility
 
