@@ -12,8 +12,14 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
+import click
 import pytest
+import typer
+from typer.core import TyperGroup
+
+from nyx.cli.main import app
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -65,11 +71,37 @@ def test_backlog_reports_zero_work_on_a_fresh_store(migrated: Path, tmp_path: Pa
     assert payload == {"queued": 0, "leased": 0, "dead_letter": 0}
 
 
-def test_every_assessment_command_offers_json(migrated: Path, tmp_path: Path) -> None:
-    for command in ("backlog", "drain"):
-        result = _run_cli(migrated, tmp_path, "assessment", command, "--help")
-        assert result.returncode == 0, result.stderr
-        assert "--json" in result.stdout
+def test_every_assessment_command_is_registered_with_json() -> None:
+    """The assessment surface is registered, and every command carries the machine flag.
+
+    Introspected off the Typer tree rather than parsed from ``--help`` output: rich styles option
+    names differently depending on how it detects the terminal, so a substring assertion on help
+    text passes on one machine and fails on another for the same command.
+    """
+
+    commands = _flatten(cast(click.Group, typer.main.get_command(app)))
+    assessment = {
+        label: command for label, command in commands.items() if label.startswith("assessment")
+    }
+    assert set(assessment) == {"assessment backlog", "assessment drain"}, sorted(assessment)
+    for label, command in assessment.items():
+        flags = [
+            flag
+            for option in getattr(command, "params", ())
+            for flag in getattr(option, "opts", ())
+        ]
+        assert "--json" in flags, f"{label} has no --json option: {flags}"
+
+
+def _flatten(group: click.Group, *, prefix: str = "") -> dict[str, click.Command]:
+    found: dict[str, click.Command] = {}
+    for name, subcommand in group.commands.items():
+        label = f"{prefix}{name}"
+        if isinstance(subcommand, TyperGroup):
+            found.update(_flatten(subcommand, prefix=f"{label} "))
+        else:
+            found[label] = subcommand
+    return found
 
 
 def test_drain_on_an_empty_queue_is_a_success_with_no_work(migrated: Path, tmp_path: Path) -> None:

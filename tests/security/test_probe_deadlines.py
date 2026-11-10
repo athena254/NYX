@@ -219,6 +219,9 @@ def test_batch_uses_one_deadline_not_a_full_timeout_per_callback() -> None:
 def test_timeout_closes_the_job_and_kills_descendants(tmp_path: Path) -> None:
     """A callback child must be in NYX's job before callback execution is released."""
 
+    if os.name != "nt":
+        pytest.skip("Windows Job Object containment is Windows-specific")
+
     descendant_pid = tmp_path / "descendant-pid.txt"
     marker = tmp_path / "descendant-marker.txt"
 
@@ -475,7 +478,14 @@ def test_start_error_is_not_masked_by_unstarted_process_cleanup(
 def test_assignment_failure_never_releases_the_prepared_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Windows Job assignment remains the release gate for executable payload bytes."""
+    """Windows Job assignment remains the release gate for executable payload bytes.
+
+    The Job Object gate exists only on Windows: on POSIX the readiness handshake runs before the
+    assignment step, so the assignment failure this test drives is unreachable there.
+    """
+
+    if os.name != "nt":
+        pytest.skip("Windows Job Object assignment is Windows-specific")
 
     class Connection:
         sent = False
